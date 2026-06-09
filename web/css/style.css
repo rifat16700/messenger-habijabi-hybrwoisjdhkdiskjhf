@@ -384,6 +384,21 @@ a { text-decoration: none; color: inherit; }
 .msg-link:hover {
   color: #fff;
 }
+.msg-sys-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 12px 0;
+}
+.msg-sys {
+  font-size: 11px;
+  color: var(--text2);
+  background: var(--bg2);
+  padding: 6px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
 .msg-date-divider { text-align: center; color: var(--text3); font-size: 11px; padding: 8px 0; }
 
 /* Message input */

@@ -14,6 +14,7 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const state = {
   token: null,
   user: null,            // { id, username, displayName }
+  fcmToken: null,
   socket: null,
   allUsers: [],          // [{ id, username, displayName }]
   onlineUserIds: new Set(),
@@ -183,10 +184,48 @@ function initApp() {
   document.getElementById('my-username').textContent    = `@${state.user.username}`;
   document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
 
-  // Load local messages and users, then connect socket
+  // Load local messages and users, init Firebase, then connect socket
   loadMessagesLocally().then(() => {
-    fetchUsers().then(() => connectSocket());
+    fetchUsers().then(() => {
+      initFirebase().then(() => connectSocket());
+    });
   });
+}
+
+// ============================================================
+//  FIREBASE CLOUD MESSAGING
+// ============================================================
+async function initFirebase() {
+  if (typeof firebase === 'undefined') return;
+
+  try {
+    firebase.initializeApp({
+      apiKey: "AIzaSyB8qqxWLZmnHyawkU1_8ENvhhXOkBgpDwA",
+      authDomain: "linko-14235.firebaseapp.com",
+      projectId: "linko-14235",
+      storageBucket: "linko-14235.firebasestorage.app",
+      messagingSenderId: "951577535380",
+      appId: "1:951577535380:web:cc14d761d91f098f30e581"
+    });
+
+    const messaging = firebase.messaging();
+    // Request permission implicitly while getting token
+    const token = await messaging.getToken({ 
+      vapidKey: 'BGIT6t06PoNAASm2V8F7pdNgCMxYxWK6FcfSaW7kgo3pqx2yUfeWIo0kVjEEUrsygQ625Ta8eCSeqD1S0G3ZsoM' 
+    });
+    
+    if (token) {
+      console.log('[FCM] Token acquired:', token.slice(0, 15) + '...');
+      state.fcmToken = token;
+    }
+
+    messaging.onMessage((payload) => {
+      console.log('[FCM] Foreground push:', payload);
+      // We rely on socket for real-time updates anyway, so we just log this.
+    });
+  } catch (err) {
+    console.warn('[FCM] Failed to initialize:', err);
+  }
 }
 
 // ============================================================
@@ -325,6 +364,10 @@ function renderMessages() {
   }
 
   area.innerHTML = msgs.map(m => {
+    if (m.type === 'sys') {
+      return `<div class="msg-sys-container"><div class="msg-sys">${esc(m.text)}</div></div>`;
+    }
+
     const isMe = m.from === state.user.id;
     // Basic markdown parser for links: [text](url)
     const formattedText = esc(m.text).replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="msg-link">$1</a>');
@@ -438,6 +481,7 @@ function connectSocket() {
       userId:      state.user.id,
       username:    state.user.username,
       displayName: state.user.displayName,
+      fcmToken:    state.fcmToken
     });
   });
 
@@ -503,16 +547,19 @@ function connectSocket() {
   });
 
   state.socket.on('call_rejected', () => {
+    logSystemMessage(`📞 Call Declined`, state.callPeerId);
     toast('Call declined', 'info');
     cleanupCall();
   });
 
   state.socket.on('call_ended', () => {
+    logSystemMessage(`📞 Call Ended (${formatDuration(state.callSeconds)})`, state.callPeerId);
     toast('Call ended', 'info');
     cleanupCall();
   });
 
   state.socket.on('call_failed', ({ reason }) => {
+    logSystemMessage(`📞 Call Failed`, state.callPeerId);
     toast(reason === 'user_offline' ? 'User is offline' : 'Call failed', 'error');
     cleanupCall();
   });
@@ -570,6 +617,7 @@ async function acceptCall() {
   if (!state.pendingOffer) return;
 
   const { from, callerName, callType, offer } = state.pendingOffer;
+  logSystemMessage(`📞 Incoming ${callType} call accepted`, from);
   state.callPeerId = from;
   state.callType   = callType;
   state.pendingOffer = null;
@@ -607,6 +655,7 @@ async function acceptCall() {
 function rejectCall() {
   closeModal('modal-incoming-call');
   if (state.pendingOffer) {
+    logSystemMessage(`📞 Missed Call`, state.pendingOffer.from);
     state.socket.emit('call_rejected', { to: state.pendingOffer.from });
     state.pendingOffer = null;
   }
@@ -632,7 +681,10 @@ function createPC() {
 }
 
 function endCall() {
-  if (state.callPeerId) state.socket.emit('call_ended', { to: state.callPeerId });
+  if (state.callPeerId) {
+    logSystemMessage(`📞 Call Ended (${formatDuration(state.callSeconds)})`, state.callPeerId);
+    state.socket.emit('call_ended', { to: state.callPeerId });
+  }
   cleanupCall();
 }
 
@@ -750,6 +802,22 @@ function formatTime(ts) {
     const d = new Date(ts);
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   } catch { return ''; }
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return '00:00';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+function logSystemMessage(text, userId) {
+  if (!userId) return;
+  const msg = { text, from: state.user.id, type: 'sys', ts: new Date().toISOString() };
+  if (!state.messages[userId]) state.messages[userId] = [];
+  state.messages[userId].push(msg);
+  saveMessagesLocally();
+  if (state.activeChat?.id === userId) renderMessages();
 }
 
 function togglePwd(inputId, btn) {
