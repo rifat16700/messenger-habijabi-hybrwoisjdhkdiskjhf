@@ -5,6 +5,11 @@
 
 const SERVER_URL = 'https://rifat1670-app-messenger.hf.space';
 
+// ── Supabase Config ──
+const SUPABASE_URL = 'https://spiotvupwogvtxlziezj.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwaW90dnVwd29ndnR4bHppZXpqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjk2MjcsImV4cCI6MjA5NjMwNTYyN30.OAPmD8UfdrU7pjv_KrNQymtjdwb7oK3f1cACQ32kVQc';
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
 // ── State ──
 const state = {
   token: null,
@@ -84,14 +89,19 @@ async function handleLogin(e) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res = await fetch(`${SERVER_URL}/api/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Login failed');
-    onAuthSuccess(data.token, data.user);
+    const { data, error } = await supabase
+      .from('app_users')
+      .select('*')
+      .eq('username', username.toLowerCase())
+      .single();
+
+    if (error || !data) throw new Error('User not found');
+    if (data.password !== password) throw new Error('Invalid password');
+
+    // Generate a simple token for local state
+    const token = btoa(data.id + Date.now());
+    const user = { id: data.id, username: data.username, displayName: data.display_name };
+    onAuthSuccess(token, user);
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -112,21 +122,31 @@ async function handleRegister(e) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res = await fetch(`${SERVER_URL}/api/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, displayName, password }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      if (data.error?.toLowerCase().includes('username')) {
-        document.getElementById('err-username').textContent = data.error;
-      } else {
-        throw new Error(data.error || 'Registration failed');
-      }
+    // Check if username exists
+    const { data: existing } = await supabase
+      .from('app_users')
+      .select('id')
+      .eq('username', username.toLowerCase())
+      .single();
+      
+    if (existing) {
+      document.getElementById('err-username').textContent = 'Username already taken';
       return;
     }
-    onAuthSuccess(data.token, data.user);
+
+    const newUser = {
+      id: crypto.randomUUID(),
+      username: username.toLowerCase(),
+      display_name: displayName,
+      password: password, // In a real app, this should be hashed. As requested, storing as text.
+    };
+
+    const { error } = await supabase.from('app_users').insert([newUser]);
+    if (error) throw new Error(error.message);
+
+    const token = btoa(newUser.id + Date.now());
+    const user = { id: newUser.id, username: newUser.username, displayName: newUser.display_name };
+    onAuthSuccess(token, user);
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -172,9 +192,16 @@ function initApp() {
 // ============================================================
 async function fetchUsers() {
   try {
-    const res  = await fetch(`${SERVER_URL}/api/users`);
-    const data = await res.json();
-    state.allUsers = (data.users || []).filter(u => u.id !== state.user.id);
+    const { data, error } = await supabase
+      .from('app_users')
+      .select('id, username, display_name');
+      
+    if (error) throw error;
+    
+    state.allUsers = (data || [])
+      .filter(u => u.id !== state.user.id)
+      .map(u => ({ id: u.id, username: u.username, displayName: u.display_name }));
+      
     renderUserList();
   } catch (e) {
     console.error('fetchUsers:', e);
@@ -581,15 +608,14 @@ async function saveProfile() {
   if (!displayName) return;
 
   try {
-    const res = await fetch(`${SERVER_URL}/api/profile`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.token}` },
-      body: JSON.stringify({ displayName }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Update failed');
+    const { error } = await supabase
+      .from('app_users')
+      .update({ display_name: displayName })
+      .eq('id', state.user.id);
 
-    state.user = data.user;
+    if (error) throw new Error(error.message);
+
+    state.user.displayName = displayName;
     localStorage.setItem('he_user', JSON.stringify(state.user));
     document.getElementById('my-displayname').textContent = state.user.displayName;
     document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
