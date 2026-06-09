@@ -45,7 +45,15 @@ function requestNotificationPermission() {
 
 function showSystemNotification(title, body) {
   if ('Notification' in window && Notification.permission === 'granted') {
-    new Notification(title, { body, icon: '/assets/favicon.png' });
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.ready.then(function(registration) {
+        registration.showNotification(title, { body });
+      }).catch(() => {
+        new Notification(title, { body });
+      });
+    } else {
+      new Notification(title, { body });
+    }
   }
 }
 
@@ -557,6 +565,12 @@ function connectSocket() {
     state.pendingOffer = { from, callerName, callType, offer };
     showIncomingCallModal(callerName, callType);
     showSystemNotification(`Incoming ${callType} call`, `From ${callerName}`);
+    
+    const ringtone = document.getElementById('ringtone');
+    if (ringtone) {
+      ringtone.currentTime = 0;
+      ringtone.play().catch(e => console.log('Audio autoplay blocked:', e));
+    }
   });
 
   state.socket.on('call_answered', async ({ from, answer }) => {

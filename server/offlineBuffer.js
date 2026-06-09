@@ -1,7 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const fetch = require('node-fetch');
-const FormData = require('form-data');
 
 const BUFFER_FILE = path.join(__dirname, 'offline_buffer.json');
 
@@ -30,60 +28,19 @@ function writeBuffer(data) {
 }
 
 // ──────────────────────────────────────────────
-//  file.io তে ডেটা আপলোড করা
-//  returns: { success, url, error }
-// ──────────────────────────────────────────────
-async function uploadToFileIO(content, filename = 'message.json') {
-  try {
-    const form = new FormData();
-    const buffer = Buffer.from(
-      typeof content === 'string' ? content : JSON.stringify(content),
-      'utf8'
-    );
-    form.append('file', buffer, {
-      filename,
-      contentType: 'application/json',
-    });
-
-    const res = await fetch('https://file.io/?expires=14d', {
-      method: 'POST',
-      body: form,
-      headers: form.getHeaders(),
-    });
-
-    const json = await res.json();
-    if (json.success) {
-      console.log(`[OfflineBuffer] Uploaded to file.io: ${json.link}`);
-      return { success: true, url: json.link };
-    } else {
-      throw new Error(json.message || 'Upload failed');
-    }
-  } catch (e) {
-    console.error('[OfflineBuffer] file.io upload error:', e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// ──────────────────────────────────────────────
 //  অফলাইন মেসেজ সেভ করা (text message)
 //  message = { text, type, senderId, senderName, originalTimestamp }
 // ──────────────────────────────────────────────
 async function saveOfflineMessage(receiverId, message) {
-  const uploadResult = await uploadToFileIO(message, `msg_${Date.now()}.json`);
-
-  if (!uploadResult.success) {
-    return { success: false, error: uploadResult.error };
-  }
-
   const buffer = readBuffer();
   if (!buffer[receiverId]) buffer[receiverId] = [];
 
   const entry = {
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    fileioUrl: uploadResult.url,
     senderId: message.senderId,
     senderName: message.senderName,
     type: message.type || 'text',
+    text: message.text, // Store payload directly
     originalTimestamp: message.originalTimestamp || new Date().toISOString(),
     bufferedAt: new Date().toISOString(),
   };
@@ -91,7 +48,7 @@ async function saveOfflineMessage(receiverId, message) {
   buffer[receiverId].push(entry);
   writeBuffer(buffer);
 
-  console.log(`[OfflineBuffer] Saved message for ${receiverId}, entry id: ${entry.id}`);
+  console.log(`[OfflineBuffer] Saved local message for ${receiverId}, entry id: ${entry.id}`);
   return { success: true, entryId: entry.id };
 }
 
@@ -101,29 +58,17 @@ async function saveOfflineMessage(receiverId, message) {
 // ──────────────────────────────────────────────
 async function saveOfflineFile(receiverId, fileBuffer, filename, mimetype, senderId, senderName, originalTimestamp) {
   try {
-    const form = new FormData();
-    form.append('file', fileBuffer, { filename, contentType: mimetype });
-
-    const res = await fetch('https://file.io/?expires=14d', {
-      method: 'POST',
-      body: form,
-      headers: form.getHeaders(),
-    });
-
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-
     const buffer = readBuffer();
     if (!buffer[receiverId]) buffer[receiverId] = [];
 
     const entry = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      fileioUrl: json.link,
       senderId,
       senderName,
       type: 'file',
       filename,
       mimetype,
+      fileData: fileBuffer.toString('base64'), // Store base64 directly
       originalTimestamp: originalTimestamp || new Date().toISOString(),
       bufferedAt: new Date().toISOString(),
     };
@@ -131,7 +76,7 @@ async function saveOfflineFile(receiverId, fileBuffer, filename, mimetype, sende
     buffer[receiverId].push(entry);
     writeBuffer(buffer);
 
-    console.log(`[OfflineBuffer] Saved file for ${receiverId}: ${filename}`);
+    console.log(`[OfflineBuffer] Saved local file for ${receiverId}: ${filename}`);
     return { success: true, entryId: entry.id };
   } catch (e) {
     console.error('[OfflineBuffer] saveOfflineFile error:', e.message);
@@ -152,40 +97,25 @@ async function deliverPendingMessages(receiverId) {
   const delivered = [];
 
   for (const entry of pending) {
-    try {
-      const res = await fetch(entry.fileioUrl);
-      // file.io returns the file content directly on first read (auto-delete)
-      if (res.ok) {
-        const contentType = res.headers.get('content-type') || '';
-        let data;
-
-        if (entry.type === 'file') {
-          const arrayBuffer = await res.arrayBuffer();
-          data = {
-            type: 'file',
-            buffer: Buffer.from(arrayBuffer).toString('base64'),
-            filename: entry.filename,
-            mimetype: entry.mimetype,
-          };
-        } else {
-          const text = await res.text();
-          try {
-            data = JSON.parse(text);
-          } catch {
-            data = { text };
-          }
-        }
-
-        delivered.push({ entry, data });
-        console.log(`[OfflineBuffer] Delivered entry ${entry.id} to ${receiverId}`);
-      } else {
-        // file.io URL expired or already consumed
-        console.warn(`[OfflineBuffer] Could not fetch ${entry.fileioUrl} (status ${res.status})`);
-        delivered.push({ entry, data: null, expired: true });
-      }
-    } catch (e) {
-      console.error(`[OfflineBuffer] Deliver error for entry ${entry.id}:`, e.message);
+    let data;
+    if (entry.type === 'file') {
+      data = {
+        type: 'file',
+        buffer: entry.fileData,
+        filename: entry.filename,
+        mimetype: entry.mimetype,
+      };
+    } else {
+      data = { text: entry.text };
     }
+
+    // Prepare a clean entry without the massive file payload to return
+    const cleanEntry = { ...entry };
+    delete cleanEntry.text;
+    delete cleanEntry.fileData;
+
+    delivered.push({ entry: cleanEntry, data });
+    console.log(`[OfflineBuffer] Delivered local entry ${entry.id} to ${receiverId}`);
   }
 
   // সব entry মুছে দাও
@@ -205,8 +135,6 @@ function getPendingCount(userId) {
 
 // ──────────────────────────────────────────────
 //  সার্ভার restart এর পরে orphan entries চেক করা
-//  (যেসব message buffer-এ ছিল কিন্তু restart এ হারিয়ে গেছে)
-//  এই ফাংশন "message_lost" event পাঠাবে sender-দের কাছে
 // ──────────────────────────────────────────────
 function getLostMessageSenders() {
   const buffer = readBuffer();
