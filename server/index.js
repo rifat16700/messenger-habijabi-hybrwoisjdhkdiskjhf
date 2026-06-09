@@ -15,6 +15,28 @@ const crypto = require('crypto');
 const offlineBuffer = require('./offlineBuffer');
 const fcm = require('./fcmHelper');
 
+// ── Persistent FCM token store ──
+// User offline থাকলেও তার token রেখে দেওয়া
+const FCM_TOKENS_FILE = path.join(__dirname, 'fcmTokens.json');
+function loadFcmTokens() {
+  try {
+    if (fs.existsSync(FCM_TOKENS_FILE)) return JSON.parse(fs.readFileSync(FCM_TOKENS_FILE, 'utf8'));
+  } catch (e) { /* ignore */ }
+  return {};
+}
+function saveFcmToken(userId, token) {
+  if (!token) return;
+  try {
+    const tokens = loadFcmTokens();
+    tokens[userId] = token;
+    fs.writeFileSync(FCM_TOKENS_FILE, JSON.stringify(tokens, null, 2));
+  } catch (e) { /* ignore */ }
+}
+function getFcmToken(userId) {
+  const tokens = loadFcmTokens();
+  return tokens[userId] || null;
+}
+
 // ── Simple in-memory user store (persisted to users.json) ──
 // Format: { id, username, displayName, passwordHash, createdAt }
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -124,6 +146,9 @@ io.on('connection', (socket) => {
 
     socket.userId = userId;
     console.log(`[Socket] User registered: ${displayName} (${userId})`);
+    
+    // Save FCM token persistently so we can push when user goes offline later
+    if (fcmToken) saveFcmToken(userId, fcmToken);
 
     // Broadcast online status to all
     socket.broadcast.emit('user_online', { userId, username, displayName });
@@ -210,8 +235,18 @@ io.on('connection', (socket) => {
         status: result.success ? 'buffered' : 'failed',
       });
 
-      // Try FCM push notification if we have the token
-      // (We'd need to fetch fcmToken from Supabase here — simplified version)
+      // Try FCM push notification for offline delivery
+      const offlineFcmToken = getFcmToken(to);
+      if (offlineFcmToken) {
+        const pendingCount = offlineBuffer.getPendingCount(to);
+        fcm.sendMessageNotification({
+          fcmToken: offlineFcmToken,
+          senderId: socket.userId,
+          senderName: fromUser.displayName || fromUser.username,
+          messagePreview: message.text?.slice(0, 60),
+          pendingCount,
+        });
+      }
       console.log(`[Socket] Message from ${socket.userId} buffered for offline user ${to}`);
     }
   });
