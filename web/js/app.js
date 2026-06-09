@@ -183,8 +183,26 @@ function initApp() {
   document.getElementById('my-username').textContent    = `@${state.user.username}`;
   document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
 
-  // Load users, then connect socket
-  fetchUsers().then(() => connectSocket());
+  // Load local messages and users, then connect socket
+  loadMessagesLocally().then(() => {
+    fetchUsers().then(() => connectSocket());
+  });
+}
+
+// ============================================================
+//  STORAGE (IndexedDB via localforage)
+// ============================================================
+async function loadMessagesLocally() {
+  try {
+    const msgs = await localforage.getItem(`msgs_${state.user.id}`);
+    if (msgs) state.messages = msgs;
+  } catch (e) { console.error('Error loading local messages:', e); }
+}
+
+async function saveMessagesLocally() {
+  try {
+    await localforage.setItem(`msgs_${state.user.id}`, state.messages);
+  } catch (e) { console.error('Error saving local messages:', e); }
 }
 
 // ============================================================
@@ -272,11 +290,21 @@ function openChat(userId) {
   renderUserList(); // re-render to highlight active
 
   // Mobile: hide sidebar
-  if (window.innerWidth < 700) {
+  if (window.innerWidth <= 700) {
     document.getElementById('sidebar').classList.add('hidden');
   }
 
   document.getElementById('msg-input').focus();
+}
+
+function closeChat() {
+  document.getElementById('active-chat').style.display = 'none';
+  document.getElementById('chat-empty').style.display  = 'flex';
+  state.activeChat = null;
+  
+  if (window.innerWidth <= 700) {
+    document.getElementById('sidebar').classList.remove('hidden');
+  }
 }
 
 function updateChatStatus(userId) {
@@ -298,10 +326,13 @@ function renderMessages() {
 
   area.innerHTML = msgs.map(m => {
     const isMe = m.from === state.user.id;
+    // Basic markdown parser for links: [text](url)
+    const formattedText = esc(m.text).replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="msg-link">$1</a>');
+    
     return `
       <div class="msg-row ${isMe ? 'me' : ''}">
         <div class="msg-bubble ${isMe ? 'me' : 'them'}">
-          ${esc(m.text)}
+          ${formattedText}
           <div class="msg-time">${formatTime(m.ts)}</div>
         </div>
       </div>`;
@@ -322,6 +353,7 @@ function sendMessage() {
   const msg = { text, from: state.user.id, ts: new Date().toISOString() };
   if (!state.messages[state.activeChat.id]) state.messages[state.activeChat.id] = [];
   state.messages[state.activeChat.id].push(msg);
+  saveMessagesLocally();
   renderMessages();
   input.value = '';
 
@@ -333,6 +365,58 @@ function sendMessage() {
       originalTimestamp: msg.ts,
     });
   }
+}
+
+// ============================================================
+//  FILE TRANSFER (Zero-Trace)
+// ============================================================
+async function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file || !state.activeChat) return;
+  event.target.value = ''; // reset
+
+  const isOnline = state.onlineUserIds.has(state.activeChat.id);
+  toast(`Uploading ${file.name}...`, 'info');
+
+  try {
+    // We use file.io for zero-trace burn-after-reading file transfer.
+    // The file is automatically deleted from their server once downloaded.
+    const link = await uploadToFileIo(file);
+    
+    // Construct message
+    const text = `📎 [Attachment: ${file.name}](${link})`;
+    const msg = { text, from: state.user.id, ts: new Date().toISOString() };
+    
+    if (!state.messages[state.activeChat.id]) state.messages[state.activeChat.id] = [];
+    state.messages[state.activeChat.id].push(msg);
+    saveMessagesLocally();
+    renderMessages();
+
+    // Send the link to the peer
+    if (state.socket) {
+      state.socket.emit('send_message', {
+        to: state.activeChat.id,
+        message: { text, type: 'text' },
+        originalTimestamp: msg.ts,
+      });
+    }
+    toast('File sent successfully!', 'success');
+  } catch (e) {
+    toast('File upload failed: ' + e.message, 'error');
+  }
+}
+
+async function uploadToFileIo(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  // Optional: expires after 1 download or 1 day
+  formData.append('maxDownloads', '1');
+  formData.append('autoDelete', 'true');
+  
+  const res = await fetch('https://file.io/', { method: 'POST', body: formData });
+  const data = await res.json();
+  if (!data.success) throw new Error(data.message || 'Upload failed');
+  return data.link;
 }
 
 // ============================================================
@@ -381,6 +465,7 @@ function connectSocket() {
   state.socket.on('new_message', ({ from, message, originalTimestamp }) => {
     if (!state.messages[from]) state.messages[from] = [];
     state.messages[from].push({ text: message.text, from, ts: originalTimestamp });
+    saveMessagesLocally();
     if (state.activeChat?.id === from) renderMessages();
     else toast(`New message from ${getUserName(from)}`, 'info');
   });
@@ -388,6 +473,7 @@ function connectSocket() {
   state.socket.on('offline_message_delivered', ({ senderId, data }) => {
     if (!state.messages[senderId]) state.messages[senderId] = [];
     state.messages[senderId].push({ text: data.text, from: senderId, ts: data.originalTimestamp });
+    saveMessagesLocally();
     if (state.activeChat?.id === senderId) renderMessages();
   });
 

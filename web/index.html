@@ -134,6 +134,7 @@
       <div id="active-chat" style="display:none;flex-direction:column;height:100%;">
 
         <div class="chat-header">
+          <button class="mobile-back-btn" onclick="closeChat()" title="Back">←</button>
           <div class="avatar sm" id="chat-avatar">?</div>
           <div class="chat-header-info">
             <div class="chat-header-name" id="chat-name">—</div>
@@ -150,6 +151,8 @@
         </div>
 
         <div class="chat-input-area">
+          <button class="icon-btn" title="Attach File" onclick="document.getElementById('file-input').click()">📎</button>
+          <input type="file" id="file-input" style="display:none" onchange="handleFileUpload(event)" />
           <div class="msg-input-wrap">
             <input type="text" id="msg-input" placeholder="Type a message…" onkeydown="onMsgKeydown(event)" />
           </div>
@@ -232,6 +235,7 @@
 <!-- ── Scripts ── -->
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
