@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "951577535380",
+    "firebase_url": "https://linko-14235-default-rtdb.firebaseio.com",
+    "project_id": "linko-14235",
+    "storage_bucket": "linko-14235.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:951577535380:android:21a3eb5645df89d930e581",
+        "android_client_info": {
+          "package_name": "com.fantique.linko"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABXd0dw3NY4r7Z4Uhgc4b5G7Sv3ERpHYo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

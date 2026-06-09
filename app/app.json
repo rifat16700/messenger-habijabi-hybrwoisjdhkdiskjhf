@@ -1,0 +1,85 @@
+{
+  "expo": {
+    "name": "Hybrid Engine",
+    "slug": "hybrid-engine-messenger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "hybrid-engine",
+
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.fantique.linko",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera is needed for video calls",
+        "NSMicrophoneUsageDescription": "Microphone is needed for voice and video calls",
+        "NSPhotoLibraryUsageDescription": "Photo library access is needed to share images",
+        "UIBackgroundModes": [
+          "audio",
+          "voip",
+          "remote-notification",
+          "fetch"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.fantique.linko",
+      "versionCode": 1,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.VIBRATE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.USE_FULL_SCREEN_INTENT",
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-camera",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Hybrid Engine to access your photos for sharing."
+        }
+      ],
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
+      ],
+      "expo-secure-store",
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "cameraPermission": "Allow Hybrid Engine to access your camera",
+          "microphonePermission": "Allow Hybrid Engine to access your microphone"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "06f1c620-0801-47e6-b6db-21c93d0a6b46"
+      }
+    },
+    "experiments": {
+      "baseUrl": "/messenger-habijabi-hybrwoisjdhkdiskjhf"
+    }
+  }
+}
