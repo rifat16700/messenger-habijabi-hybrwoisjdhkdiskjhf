@@ -452,11 +452,10 @@ async function handleFileUpload(event) {
 async function uploadToFileIo(file) {
   const formData = new FormData();
   formData.append('file', file);
-  // Optional: expires after 1 download or 1 day
-  formData.append('maxDownloads', '1');
-  formData.append('autoDelete', 'true');
+  // Optional parameters removed because file.io free tier might block them.
+  // It defaults to 1 download auto-delete anyway!
   
-  const res = await fetch('https://file.io/', { method: 'POST', body: formData });
+  const res = await fetch('https://file.io/?expires=1d', { method: 'POST', body: formData });
   const data = await res.json();
   if (!data.success) throw new Error(data.message || 'Upload failed');
   return data.link;
