@@ -2,7 +2,12 @@
 //  FCM Helper — Firebase Cloud Messaging
 //  firebase_config.js ফাইলে তোমার Firebase credentials দাও
 // ============================================================
-const firebaseConfig = require('./firebase_config');
+let firebaseConfig = {};
+try {
+  firebaseConfig = require('./firebase_config');
+} catch (e) {
+  // Ignore, config missing
+}
 
 let admin = null;
 let messaging = null;

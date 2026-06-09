@@ -18,4 +18,3 @@ server/node_modules/
 .env
 
 linko-14235-*.json
-server/firebase_config.js
