@@ -2,8 +2,10 @@
 //  App Config — API Keys & Endpoints
 //  সব credentials এখানে centrally manage হবে
 // ============================================================
-import 'react-native-url-polyfill/auto';
-
+import { Platform } from 'react-native';
+if (Platform.OS !== 'web') {
+  require('react-native-url-polyfill/auto');
+}
 export const CONFIG = {
   // ── Supabase ──
   SUPABASE_URL: 'https://spiotvupwogvtxlziezj.supabase.co',

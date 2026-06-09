@@ -58,13 +58,21 @@ export default function AuthScreen() {
     return Object.keys(newErrors).length === 0;
   }
 
+  function showAlert(title, message) {
+    if (Platform.OS === 'web') {
+      window.alert(`${title}\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  }
+
   async function handleSubmit() {
     if (!validate()) return;
     setIsLoading(true);
     try {
       if (mode === 'login') {
         const { error } = await signIn({ email: email.trim(), password });
-        if (error) Alert.alert('Login Failed', error.message);
+        if (error) showAlert('Login Failed', error.message);
       } else {
         const { error } = await signUp({
           email: email.trim(),
@@ -72,11 +80,12 @@ export default function AuthScreen() {
           username: username.trim().toLowerCase(),
           displayName: displayName.trim(),
         });
-        if (error) Alert.alert('Registration Failed', error.message);
-        else Alert.alert('Success! 🎉', 'Check your email to confirm your account, then login.');
+        if (error) showAlert('Registration Failed', error.message);
+        else showAlert('Success! 🎉', 'Check your email to confirm your account, then login.');
       }
     } catch (e) {
-      Alert.alert('Error', e.message);
+      console.error('Auth Error:', e);
+      showAlert('Error', e.message);
     } finally {
       setIsLoading(false);
     }
