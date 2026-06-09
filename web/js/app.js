@@ -44,16 +44,21 @@ function requestNotificationPermission() {
 }
 
 function showSystemNotification(title, body) {
-  if ('Notification' in window && Notification.permission === 'granted') {
-    if (navigator.serviceWorker) {
-      navigator.serviceWorker.ready.then(function(registration) {
-        registration.showNotification(title, { body });
-      }).catch(() => {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  
+  // Try Service Worker first (required for Android/mobile)
+  // If SW not available or fails, fallback to regular Notification
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg) {
+        reg.showNotification(title, { body });
+      } else {
         new Notification(title, { body });
-      });
-    } else {
-      new Notification(title, { body });
-    }
+      }
+    }).catch(() => new Notification(title, { body }));
+  } else {
+    new Notification(title, { body });
   }
 }
 
@@ -722,6 +727,9 @@ async function acceptCall() {
 
 function rejectCall() {
   closeModal('modal-incoming-call');
+  // Stop ringtone
+  const ringtone = document.getElementById('ringtone');
+  if (ringtone) { ringtone.pause(); ringtone.currentTime = 0; }
   if (state.pendingOffer) {
     logSystemMessage(`📞 Missed Call`, state.pendingOffer.from);
     state.socket.emit('call_rejected', { to: state.pendingOffer.from });
@@ -760,6 +768,10 @@ function cleanupCall() {
   if (state.callTimerInterval) clearInterval(state.callTimerInterval);
   state.callTimerInterval = null;
   state.callSeconds       = 0;
+
+  // Always stop ringtone
+  const ringtone = document.getElementById('ringtone');
+  if (ringtone) { ringtone.pause(); ringtone.currentTime = 0; }
 
   if (state.localStream) {
     state.localStream.getTracks().forEach(t => t.stop());
