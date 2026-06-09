@@ -88,7 +88,15 @@ window.addEventListener('DOMContentLoaded', () => {
   } else {
     showView('auth');
   }
+
+  // Mobile: tap on messages area → dismiss keyboard
+  document.getElementById('messages-area')?.addEventListener('click', (e) => {
+    if (window.innerWidth <= 700) {
+      document.getElementById('msg-input')?.blur();
+    }
+  });
 });
+
 
 // ============================================================
 //  ROUTING — View Switcher
@@ -363,14 +371,15 @@ function openChat(userId) {
   document.getElementById('active-chat').style.display = 'flex';
 
   renderMessages();
-  renderUserList(); // re-render to highlight active
+  renderUserList();
 
   // Mobile: hide sidebar
   if (window.innerWidth <= 700) {
     document.getElementById('sidebar').classList.add('hidden');
+    // Don't auto-focus on mobile — user taps input to open keyboard
+  } else {
+    document.getElementById('msg-input').focus();
   }
-
-  document.getElementById('msg-input').focus();
 }
 
 function closeChat() {
@@ -436,6 +445,8 @@ function sendMessage() {
   saveMessagesLocally();
   renderMessages();
   input.value = '';
+  // Keep keyboard open on mobile after sending
+  input.focus();
 
   // Send via socket
   if (state.socket) {
@@ -674,12 +685,15 @@ async function startCall(callType) {
 function showIncomingCallModal(callerName, callType) {
   document.getElementById('incoming-avatar').textContent = initials(callerName);
   document.getElementById('incoming-name').textContent   = callerName;
-  document.getElementById('incoming-type').textContent   = callType === 'video' ? '📹 Incoming Video Call' : '🎙️ Incoming Audio Call';
+  document.getElementById('incoming-type').textContent   = callType === 'video' ? 'Incoming Video Call' : 'Incoming Audio Call';
   document.getElementById('modal-incoming-call').classList.add('show');
 }
 
 async function acceptCall() {
   closeModal('modal-incoming-call');
+  // Stop ringtone immediately
+  const ringtone = document.getElementById('ringtone');
+  if (ringtone) { ringtone.pause(); ringtone.currentTime = 0; }
   if (!state.pendingOffer) return;
 
   const { from, callerName, callType, offer } = state.pendingOffer;
