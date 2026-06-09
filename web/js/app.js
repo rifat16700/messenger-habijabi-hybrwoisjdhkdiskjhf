@@ -8,7 +8,7 @@ const SERVER_URL = 'https://rifat1670-app-messenger.hf.space';
 // ── Supabase Config ──
 const SUPABASE_URL = 'https://spiotvupwogvtxlziezj.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwaW90dnVwd29ndnR4bHppZXpqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjk2MjcsImV4cCI6MjA5NjMwNTYyN30.OAPmD8UfdrU7pjv_KrNQymtjdwb7oK3f1cACQ32kVQc';
-const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ── State ──
 const state = {
@@ -89,7 +89,7 @@ async function handleLogin(e) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('app_users')
       .select('*')
       .eq('username', username.toLowerCase())
@@ -123,7 +123,7 @@ async function handleRegister(e) {
 
   try {
     // Check if username exists
-    const { data: existing } = await supabase
+    const { data: existing } = await supabaseClient
       .from('app_users')
       .select('id')
       .eq('username', username.toLowerCase())
@@ -141,7 +141,7 @@ async function handleRegister(e) {
       password: password, // In a real app, this should be hashed. As requested, storing as text.
     };
 
-    const { error } = await supabase.from('app_users').insert([newUser]);
+    const { error } = await supabaseClient.from('app_users').insert([newUser]);
     if (error) throw new Error(error.message);
 
     const token = btoa(newUser.id + Date.now());
@@ -192,7 +192,7 @@ function initApp() {
 // ============================================================
 async function fetchUsers() {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('app_users')
       .select('id, username, display_name');
       
@@ -608,7 +608,7 @@ async function saveProfile() {
   if (!displayName) return;
 
   try {
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from('app_users')
       .update({ display_name: displayName })
       .eq('id', state.user.id);
