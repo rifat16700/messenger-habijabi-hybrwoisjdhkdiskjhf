@@ -535,6 +535,9 @@ function connectSocket() {
     saveMessagesLocally();
     if (state.activeChat?.id === from) {
       renderMessages();
+      if (document.hidden) {
+        showSystemNotification(`New message from ${getUserName(from)}`, message.text);
+      }
     } else {
       toast(`New message from ${getUserName(from)}`, 'info');
       showSystemNotification(`New message from ${getUserName(from)}`, message.text);

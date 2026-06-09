@@ -3,11 +3,21 @@
 //  firebase_config.js ফাইলে তোমার Firebase credentials দাও
 // ============================================================
 let firebaseConfig = {};
-try {
-  firebaseConfig = require('./firebase_config');
-} catch (e) {
-  // Ignore, config missing
+
+if (process.env.FIREBASE_CONFIG_JSON) {
+  try {
+    firebaseConfig.FIREBASE_CONFIG = JSON.parse(process.env.FIREBASE_CONFIG_JSON);
+  } catch(e) {
+    console.error("Invalid FIREBASE_CONFIG_JSON format");
+  }
+} else {
+  try {
+    firebaseConfig = require('./firebase_config');
+  } catch (e) {
+    // Ignore, config missing
+  }
 }
+
 
 let admin = null;
 let messaging = null;
