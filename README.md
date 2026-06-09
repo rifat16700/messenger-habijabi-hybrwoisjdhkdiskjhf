@@ -1,3 +1,12 @@
+---
+title: Hybrid Engine Signaling Server
+emoji: 🚀
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # 🚀 The Hybrid Engine — সেটআপ গাইড
 
 ## প্রজেক্ট স্ট্রাকচার
