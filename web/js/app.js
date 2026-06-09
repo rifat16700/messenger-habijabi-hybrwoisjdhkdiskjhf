@@ -36,6 +36,19 @@ const state = {
   iceCandidateQueue: [], // For queueing ICE candidates before remote description is set
 };
 
+// ── Browser Notifications ──
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function showSystemNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/assets/favicon.png' });
+  }
+}
+
 // ── ICE Servers ──
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },
@@ -56,6 +69,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (savedToken && savedUser) {
     state.token = savedToken;
     state.user  = JSON.parse(savedUser);
+    requestNotificationPermission();
     showView('main');
     initApp();
   } else {
@@ -162,6 +176,9 @@ function onAuthSuccess(token, user) {
   state.user  = user;
   localStorage.setItem('he_token', token);
   localStorage.setItem('he_user', JSON.stringify(user));
+
+  requestNotificationPermission();
+
   showView('main');
   initApp();
 }
@@ -516,8 +533,12 @@ function connectSocket() {
     if (!state.messages[from]) state.messages[from] = [];
     state.messages[from].push({ text: message.text, from, ts: originalTimestamp });
     saveMessagesLocally();
-    if (state.activeChat?.id === from) renderMessages();
-    else toast(`New message from ${getUserName(from)}`, 'info');
+    if (state.activeChat?.id === from) {
+      renderMessages();
+    } else {
+      toast(`New message from ${getUserName(from)}`, 'info');
+      showSystemNotification(`New message from ${getUserName(from)}`, message.text);
+    }
   });
 
   state.socket.on('offline_message_delivered', ({ senderId, data }) => {
@@ -532,6 +553,7 @@ function connectSocket() {
     console.log(`[Call] Incoming ${callType} call from ${callerName}`);
     state.pendingOffer = { from, callerName, callType, offer };
     showIncomingCallModal(callerName, callType);
+    showSystemNotification(`Incoming ${callType} call`, `From ${callerName}`);
   });
 
   state.socket.on('call_answered', async ({ from, answer }) => {
