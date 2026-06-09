@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hybrid Engine — Secure P2P Messenger</title>
+  <meta name="description" content="Zero-cost, zero-trace, end-to-end encrypted P2P messenger." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ═══════════════════════════════════════
+       AUTH VIEW
+  ═══════════════════════════════════════ -->
+  <div id="view-auth" class="view active">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">💬</div>
+        <h1>Hybrid Engine</h1>
+        <p>Zero-cost · Zero-trace · P2P Chat</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active" onclick="switchAuthTab('login')">Sign In</button>
+        <button id="tab-register" class="auth-tab" onclick="switchAuthTab('register')">Create Account</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="form-login" onsubmit="handleLogin(event)">
+        <div class="field">
+          <label>Username</label>
+          <div class="input-wrap">
+            <span class="icon">👤</span>
+            <input type="text" id="login-username" placeholder="your_username" autocomplete="username" required />
+          </div>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <div class="input-wrap">
+            <span class="icon">🔒</span>
+            <input type="password" id="login-password" placeholder="Min 6 characters" autocomplete="current-password" required />
+            <button type="button" class="eye-btn" onclick="togglePwd('login-password', this)">👁️</button>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" id="btn-login">Sign In</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="form-register" style="display:none" onsubmit="handleRegister(event)">
+        <div class="field">
+          <label>Display Name</label>
+          <div class="input-wrap">
+            <span class="icon">✨</span>
+            <input type="text" id="reg-displayname" placeholder="Your Name" required />
+          </div>
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <div class="input-wrap">
+            <span class="icon">@</span>
+            <input type="text" id="reg-username" placeholder="unique_username" autocomplete="username" required />
+          </div>
+          <div class="err" id="err-username"></div>
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <div class="input-wrap">
+            <span class="icon">🔒</span>
+            <input type="password" id="reg-password" placeholder="Min 6 characters" autocomplete="new-password" required />
+            <button type="button" class="eye-btn" onclick="togglePwd('reg-password', this)">👁️</button>
+          </div>
+        </div>
+        <button type="submit" class="btn-primary" id="btn-register">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       MAIN VIEW (Sidebar + Chat)
+  ═══════════════════════════════════════ -->
+  <div id="view-main" class="view">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="auth-logo-icon" style="width:36px;height:36px;border-radius:10px;font-size:18px;flex-shrink:0;">💬</div>
+        <span class="sidebar-title">Hybrid Engine</span>
+        <button class="icon-btn" title="Search users" onclick="focusSearch()">🔍</button>
+        <button class="icon-btn" title="My Profile" onclick="openProfileModal()">⚙️</button>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" id="stab-all" onclick="switchSidebarTab('all')">All Users</button>
+        <button class="sidebar-tab" id="stab-online" onclick="switchSidebarTab('online')">Online</button>
+      </div>
+
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <span>🔍</span>
+          <input type="text" id="search-input" placeholder="Search users..." oninput="onSearch(this.value)" />
+        </div>
+      </div>
+
+      <div class="user-list" id="user-list">
+        <div class="no-chats">
+          <div class="icon">👥</div>
+          <p>No users yet.<br/>Register first or ask others to join.</p>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="avatar sm" id="my-avatar">?</div>
+        <div>
+          <div class="my-profile-name" id="my-displayname">Loading…</div>
+          <div class="my-profile-sub" id="my-username">@—</div>
+        </div>
+        <button class="icon-btn" onclick="logout()" title="Sign Out">🚪</button>
+      </div>
+    </aside>
+
+    <!-- Chat Area -->
+    <section class="chat-area" id="chat-area">
+
+      <!-- Empty state -->
+      <div class="chat-empty" id="chat-empty">
+        <div class="big-icon">💬</div>
+        <span>Select a user to start chatting</span>
+      </div>
+
+      <!-- Active chat (hidden until user selected) -->
+      <div id="active-chat" style="display:none;flex-direction:column;height:100%;">
+
+        <div class="chat-header">
+          <div class="avatar sm" id="chat-avatar">?</div>
+          <div class="chat-header-info">
+            <div class="chat-header-name" id="chat-name">—</div>
+            <div class="chat-header-status" id="chat-status">Offline</div>
+          </div>
+          <div class="chat-header-actions">
+            <button class="call-btn" title="Audio Call" onclick="startCall('audio')" id="btn-audio-call">🎙️</button>
+            <button class="call-btn video" title="Video Call" onclick="startCall('video')" id="btn-video-call">📹</button>
+          </div>
+        </div>
+
+        <div class="messages-area" id="messages-area">
+          <!-- Messages injected here -->
+        </div>
+
+        <div class="chat-input-area">
+          <div class="msg-input-wrap">
+            <input type="text" id="msg-input" placeholder="Type a message…" onkeydown="onMsgKeydown(event)" />
+          </div>
+          <button class="send-btn" onclick="sendMessage()">➤</button>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       CALL VIEW
+  ═══════════════════════════════════════ -->
+  <div id="view-call" class="view">
+    <video id="remote-video" class="call-remote-video" autoplay playsinline></video>
+    <video id="local-video" class="call-local-video" autoplay playsinline muted></video>
+
+    <div class="call-overlay">
+      <div class="call-info">
+        <div class="call-caller-name" id="call-peer-name">—</div>
+        <div class="call-status" id="call-status-text">Calling…</div>
+        <div class="call-timer" id="call-timer" style="display:none">0:00</div>
+      </div>
+
+      <div class="call-controls">
+        <button class="call-ctrl-btn" id="btn-mute" onclick="toggleMute()" title="Mute">
+          🎙️<span id="mute-label">Mute</span>
+        </button>
+        <button class="call-ctrl-btn end-call" onclick="endCall()" title="End Call">📵</button>
+        <button class="call-ctrl-btn" id="btn-cam" onclick="toggleCamera()" title="Camera" id="cam-btn">
+          📹<span id="cam-label">Camera</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /#app -->
+
+<!-- ═══════════════════════════════════════
+     INCOMING CALL MODAL
+═══════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-incoming-call">
+  <div class="modal-box">
+    <div class="incoming-call-avatar" id="incoming-avatar">?</div>
+    <div class="incoming-call-name" id="incoming-name">—</div>
+    <div class="incoming-call-type" id="incoming-type">Incoming Video Call</div>
+    <div class="incoming-call-btns">
+      <button class="call-action-btn reject" onclick="rejectCall()">
+        📵<span>Decline</span>
+      </button>
+      <button class="call-action-btn accept" onclick="acceptCall()">
+        📞<span>Accept</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Profile Modal -->
+<div class="modal-overlay" id="modal-profile">
+  <div class="modal-box">
+    <div class="modal-title">My Profile</div>
+    <div class="avatar-picker" id="profile-avatar-preview">?</div>
+    <div class="field">
+      <label>Display Name</label>
+      <div class="input-wrap">
+        <span class="icon">✨</span>
+        <input type="text" id="profile-displayname" placeholder="Your display name" />
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:8px;">
+      <button class="btn-primary" style="flex:1" onclick="saveProfile()">Save Changes</button>
+      <button class="btn-primary" style="flex:1;background:rgba(255,255,255,0.08);" onclick="closeModal('modal-profile')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container"></div>
+
+<!-- ── Scripts ── -->
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

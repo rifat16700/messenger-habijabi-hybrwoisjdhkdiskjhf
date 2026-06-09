@@ -1,0 +1,658 @@
+// ============================================================
+//  Hybrid Engine — Pure Vanilla JS App
+//  Custom Auth + Real-time Chat + WebRTC Calling
+// ============================================================
+
+const SERVER_URL = 'https://rifat1670-app-messenger.hf.space';
+
+// ── State ──
+const state = {
+  token: null,
+  user: null,            // { id, username, displayName }
+  socket: null,
+  allUsers: [],          // [{ id, username, displayName }]
+  onlineUserIds: new Set(),
+  activeChat: null,      // { id, username, displayName }
+  messages: {},          // { userId: [{text, from, ts}] }
+  sidebarTab: 'all',
+
+  // WebRTC
+  pc: null,
+  localStream: null,
+  remoteStream: null,
+  callPeerId: null,
+  callType: 'video',
+  callTimerInterval: null,
+  callSeconds: 0,
+  isMuted: false,
+  isCamOff: false,
+  pendingOffer: null,    // { from, callerName, callType, offer }
+};
+
+// ── ICE Servers ──
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+];
+
+// ============================================================
+//  INIT
+// ============================================================
+window.addEventListener('DOMContentLoaded', () => {
+  const savedToken = localStorage.getItem('he_token');
+  const savedUser  = localStorage.getItem('he_user');
+  if (savedToken && savedUser) {
+    state.token = savedToken;
+    state.user  = JSON.parse(savedUser);
+    showView('main');
+    initApp();
+  } else {
+    showView('auth');
+  }
+});
+
+// ============================================================
+//  ROUTING — View Switcher
+// ============================================================
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const el = document.getElementById(`view-${name}`);
+  if (el) el.classList.add('active');
+}
+
+// ============================================================
+//  AUTH
+// ============================================================
+function switchAuthTab(tab) {
+  document.getElementById('form-login').style.display    = tab === 'login'    ? '' : 'none';
+  document.getElementById('form-register').style.display = tab === 'register' ? '' : 'none';
+  document.getElementById('tab-login').classList.toggle('active',    tab === 'login');
+  document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res = await fetch(`${SERVER_URL}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
+    onAuthSuccess(data.token, data.user);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const displayName = document.getElementById('reg-displayname').value.trim();
+  const username    = document.getElementById('reg-username').value.trim();
+  const password    = document.getElementById('reg-password').value;
+  document.getElementById('err-username').textContent = '';
+
+  const btn = document.getElementById('btn-register');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+
+  try {
+    const res = await fetch(`${SERVER_URL}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, displayName, password }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      if (data.error?.toLowerCase().includes('username')) {
+        document.getElementById('err-username').textContent = data.error;
+      } else {
+        throw new Error(data.error || 'Registration failed');
+      }
+      return;
+    }
+    onAuthSuccess(data.token, data.user);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+  }
+}
+
+function onAuthSuccess(token, user) {
+  state.token = token;
+  state.user  = user;
+  localStorage.setItem('he_token', token);
+  localStorage.setItem('he_user', JSON.stringify(user));
+  showView('main');
+  initApp();
+}
+
+function logout() {
+  if (state.socket) state.socket.disconnect();
+  state.socket = null;
+  state.user   = null;
+  state.token  = null;
+  localStorage.removeItem('he_token');
+  localStorage.removeItem('he_user');
+  showView('auth');
+}
+
+// ============================================================
+//  APP INIT
+// ============================================================
+function initApp() {
+  // Update UI with my info
+  document.getElementById('my-displayname').textContent = state.user.displayName;
+  document.getElementById('my-username').textContent    = `@${state.user.username}`;
+  document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
+
+  // Load users, then connect socket
+  fetchUsers().then(() => connectSocket());
+}
+
+// ============================================================
+//  USER LIST
+// ============================================================
+async function fetchUsers() {
+  try {
+    const res  = await fetch(`${SERVER_URL}/api/users`);
+    const data = await res.json();
+    state.allUsers = (data.users || []).filter(u => u.id !== state.user.id);
+    renderUserList();
+  } catch (e) {
+    console.error('fetchUsers:', e);
+  }
+}
+
+function renderUserList() {
+  const tab    = state.sidebarTab;
+  const query  = document.getElementById('search-input').value.toLowerCase();
+  const list   = document.getElementById('user-list');
+
+  let users = state.allUsers;
+  if (tab === 'online') users = users.filter(u => state.onlineUserIds.has(u.id));
+  if (query) users = users.filter(u =>
+    u.username.includes(query) || u.displayName.toLowerCase().includes(query)
+  );
+
+  if (!users.length) {
+    list.innerHTML = `<div class="no-chats"><div class="icon">👥</div><p>${query ? 'No results found.' : 'No users yet.'}</p></div>`;
+    return;
+  }
+
+  list.innerHTML = users.map(u => {
+    const isOnline = state.onlineUserIds.has(u.id);
+    const isActive = state.activeChat?.id === u.id;
+    return `
+      <div class="user-item ${isActive ? 'active' : ''}" onclick="openChat('${u.id}')">
+        <div class="avatar sm">${initials(u.displayName)}${isOnline ? '<div class="online-dot"></div>' : ''}</div>
+        <div class="user-item-info">
+          <div class="user-item-name">${esc(u.displayName)}</div>
+          <div class="user-item-sub">@${esc(u.username)} · ${isOnline ? '<span style="color:var(--online)">Online</span>' : 'Offline'}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function onSearch(q) { renderUserList(); }
+
+function switchSidebarTab(tab) {
+  state.sidebarTab = tab;
+  document.getElementById('stab-all').classList.toggle('active',    tab === 'all');
+  document.getElementById('stab-online').classList.toggle('active', tab === 'online');
+  renderUserList();
+}
+
+function focusSearch() { document.getElementById('search-input').focus(); }
+
+// ============================================================
+//  CHAT
+// ============================================================
+function openChat(userId) {
+  const user = state.allUsers.find(u => u.id === userId);
+  if (!user) return;
+
+  state.activeChat = user;
+  if (!state.messages[userId]) state.messages[userId] = [];
+
+  // Update header
+  document.getElementById('chat-avatar').textContent = initials(user.displayName);
+  document.getElementById('chat-name').textContent   = user.displayName;
+  updateChatStatus(userId);
+
+  // Show chat panel
+  document.getElementById('chat-empty').style.display  = 'none';
+  document.getElementById('active-chat').style.display = 'flex';
+
+  renderMessages();
+  renderUserList(); // re-render to highlight active
+
+  // Mobile: hide sidebar
+  if (window.innerWidth < 700) {
+    document.getElementById('sidebar').classList.add('hidden');
+  }
+
+  document.getElementById('msg-input').focus();
+}
+
+function updateChatStatus(userId) {
+  const isOnline = state.onlineUserIds.has(userId || state.activeChat?.id);
+  const el = document.getElementById('chat-status');
+  if (el) el.innerHTML = isOnline
+    ? '<span style="color:var(--online)">● Online</span>'
+    : '<span style="color:var(--text3)">● Offline</span>';
+}
+
+function renderMessages() {
+  const area = document.getElementById('messages-area');
+  const msgs = state.messages[state.activeChat?.id] || [];
+
+  if (!msgs.length) {
+    area.innerHTML = '<div class="msg-date-divider">No messages yet. Say hello! 👋</div>';
+    return;
+  }
+
+  area.innerHTML = msgs.map(m => {
+    const isMe = m.from === state.user.id;
+    return `
+      <div class="msg-row ${isMe ? 'me' : ''}">
+        <div class="msg-bubble ${isMe ? 'me' : 'them'}">
+          ${esc(m.text)}
+          <div class="msg-time">${formatTime(m.ts)}</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  area.scrollTop = area.scrollHeight;
+}
+
+function onMsgKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  if (!text || !state.activeChat) return;
+
+  const msg = { text, from: state.user.id, ts: new Date().toISOString() };
+  if (!state.messages[state.activeChat.id]) state.messages[state.activeChat.id] = [];
+  state.messages[state.activeChat.id].push(msg);
+  renderMessages();
+  input.value = '';
+
+  // Send via socket
+  if (state.socket) {
+    state.socket.emit('send_message', {
+      to: state.activeChat.id,
+      message: { text, type: 'text' },
+      originalTimestamp: msg.ts,
+    });
+  }
+}
+
+// ============================================================
+//  SOCKET.IO
+// ============================================================
+function connectSocket() {
+  if (state.socket) state.socket.disconnect();
+
+  state.socket = io(SERVER_URL, {
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1500,
+  });
+
+  state.socket.on('connect', () => {
+    console.log('[Socket] Connected:', state.socket.id);
+    state.socket.emit('register', {
+      userId:      state.user.id,
+      username:    state.user.username,
+      displayName: state.user.displayName,
+    });
+  });
+
+  state.socket.on('online_users_list', (list) => {
+    state.onlineUserIds.clear();
+    list.forEach(u => state.onlineUserIds.add(u.userId));
+    renderUserList();
+    updateChatStatus();
+  });
+
+  state.socket.on('user_online', ({ userId }) => {
+    state.onlineUserIds.add(userId);
+    // If this user wasn't in our list, refresh
+    if (!state.allUsers.find(u => u.id === userId)) fetchUsers();
+    renderUserList();
+    updateChatStatus();
+  });
+
+  state.socket.on('user_offline', ({ userId }) => {
+    state.onlineUserIds.delete(userId);
+    renderUserList();
+    updateChatStatus();
+  });
+
+  state.socket.on('new_message', ({ from, message, originalTimestamp }) => {
+    if (!state.messages[from]) state.messages[from] = [];
+    state.messages[from].push({ text: message.text, from, ts: originalTimestamp });
+    if (state.activeChat?.id === from) renderMessages();
+    else toast(`New message from ${getUserName(from)}`, 'info');
+  });
+
+  state.socket.on('offline_message_delivered', ({ senderId, data }) => {
+    if (!state.messages[senderId]) state.messages[senderId] = [];
+    state.messages[senderId].push({ text: data.text, from: senderId, ts: data.originalTimestamp });
+    if (state.activeChat?.id === senderId) renderMessages();
+  });
+
+  // ── INCOMING CALL ──
+  state.socket.on('incoming_call', ({ from, callerName, callType, offer }) => {
+    console.log(`[Call] Incoming ${callType} call from ${callerName}`);
+    state.pendingOffer = { from, callerName, callType, offer };
+    showIncomingCallModal(callerName, callType);
+  });
+
+  state.socket.on('call_answered', async ({ from, answer }) => {
+    if (state.pc) {
+      try {
+        await state.pc.setRemoteDescription(new RTCSessionDescription(answer));
+        startCallTimer();
+        document.getElementById('call-status-text').textContent = 'Connected';
+        document.getElementById('call-timer').style.display = '';
+      } catch (e) { console.error('setRemoteDescription:', e); }
+    }
+  });
+
+  state.socket.on('ice_candidate', async ({ from, candidate }) => {
+    if (state.pc && candidate) {
+      try { await state.pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+      catch (e) { /* ignore */ }
+    }
+  });
+
+  state.socket.on('call_rejected', () => {
+    toast('Call declined', 'info');
+    cleanupCall();
+  });
+
+  state.socket.on('call_ended', () => {
+    toast('Call ended', 'info');
+    cleanupCall();
+  });
+
+  state.socket.on('call_failed', ({ reason }) => {
+    toast(reason === 'user_offline' ? 'User is offline' : 'Call failed', 'error');
+    cleanupCall();
+  });
+
+  state.socket.on('disconnect', () => {
+    console.log('[Socket] Disconnected');
+  });
+}
+
+// ============================================================
+//  WEBRTC — CALLING
+// ============================================================
+async function startCall(callType) {
+  if (!state.activeChat) return;
+  state.callPeerId = state.activeChat.id;
+  state.callType   = callType;
+
+  showView('call');
+  document.getElementById('call-peer-name').textContent   = state.activeChat.displayName;
+  document.getElementById('call-status-text').textContent = 'Calling…';
+  document.getElementById('call-timer').style.display     = 'none';
+
+  // Hide cam button for audio calls
+  document.getElementById('btn-cam').style.display = callType === 'audio' ? 'none' : '';
+
+  try {
+    state.localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: callType === 'video' ? { facingMode: 'user', width: 1280, height: 720 } : false,
+    });
+    document.getElementById('local-video').srcObject = state.localStream;
+
+    state.pc = createPC();
+    state.localStream.getTracks().forEach(t => state.pc.addTrack(t, state.localStream));
+
+    const offer = await state.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === 'video' });
+    await state.pc.setLocalDescription(offer);
+
+    state.socket.emit('offer', { to: state.callPeerId, offer, callType });
+  } catch (e) {
+    toast('Could not access camera/microphone: ' + e.message, 'error');
+    cleanupCall();
+  }
+}
+
+function showIncomingCallModal(callerName, callType) {
+  document.getElementById('incoming-avatar').textContent = initials(callerName);
+  document.getElementById('incoming-name').textContent   = callerName;
+  document.getElementById('incoming-type').textContent   = callType === 'video' ? '📹 Incoming Video Call' : '🎙️ Incoming Audio Call';
+  document.getElementById('modal-incoming-call').classList.add('show');
+}
+
+async function acceptCall() {
+  closeModal('modal-incoming-call');
+  if (!state.pendingOffer) return;
+
+  const { from, callerName, callType, offer } = state.pendingOffer;
+  state.callPeerId = from;
+  state.callType   = callType;
+  state.pendingOffer = null;
+
+  showView('call');
+  document.getElementById('call-peer-name').textContent   = callerName;
+  document.getElementById('call-status-text').textContent = 'Connecting…';
+  document.getElementById('call-timer').style.display     = 'none';
+  document.getElementById('btn-cam').style.display        = callType === 'audio' ? 'none' : '';
+
+  try {
+    state.localStream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: callType === 'video' ? { facingMode: 'user' } : false,
+    });
+    document.getElementById('local-video').srcObject = state.localStream;
+
+    state.pc = createPC();
+    state.localStream.getTracks().forEach(t => state.pc.addTrack(t, state.localStream));
+
+    await state.pc.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await state.pc.createAnswer();
+    await state.pc.setLocalDescription(answer);
+
+    state.socket.emit('answer', { to: from, answer });
+    startCallTimer();
+    document.getElementById('call-status-text').textContent = 'Connected';
+    document.getElementById('call-timer').style.display = '';
+  } catch (e) {
+    toast('Could not start call: ' + e.message, 'error');
+    cleanupCall();
+  }
+}
+
+function rejectCall() {
+  closeModal('modal-incoming-call');
+  if (state.pendingOffer) {
+    state.socket.emit('call_rejected', { to: state.pendingOffer.from });
+    state.pendingOffer = null;
+  }
+}
+
+function createPC() {
+  const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) state.socket.emit('ice_candidate', { to: state.callPeerId, candidate });
+  };
+
+  pc.ontrack = (event) => {
+    const remoteVideo = document.getElementById('remote-video');
+    if (event.streams?.[0]) remoteVideo.srcObject = event.streams[0];
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'failed') pc.restartIce();
+  };
+
+  return pc;
+}
+
+function endCall() {
+  if (state.callPeerId) state.socket.emit('call_ended', { to: state.callPeerId });
+  cleanupCall();
+}
+
+function cleanupCall() {
+  if (state.callTimerInterval) clearInterval(state.callTimerInterval);
+  state.callTimerInterval = null;
+  state.callSeconds       = 0;
+
+  if (state.localStream) {
+    state.localStream.getTracks().forEach(t => t.stop());
+    state.localStream = null;
+  }
+  if (state.pc) { state.pc.close(); state.pc = null; }
+
+  document.getElementById('local-video').srcObject  = null;
+  document.getElementById('remote-video').srcObject = null;
+  state.callPeerId = null;
+  state.isMuted    = false;
+  state.isCamOff   = false;
+
+  showView('main');
+}
+
+function toggleMute() {
+  state.isMuted = !state.isMuted;
+  state.localStream?.getAudioTracks().forEach(t => { t.enabled = !state.isMuted; });
+  document.getElementById('btn-mute').classList.toggle('active', state.isMuted);
+  document.getElementById('mute-label').textContent = state.isMuted ? 'Unmute' : 'Mute';
+}
+
+function toggleCamera() {
+  state.isCamOff = !state.isCamOff;
+  state.localStream?.getVideoTracks().forEach(t => { t.enabled = !state.isCamOff; });
+  document.getElementById('btn-cam').classList.toggle('active', state.isCamOff);
+  document.getElementById('cam-label').textContent = state.isCamOff ? 'Show Cam' : 'Camera';
+}
+
+function startCallTimer() {
+  state.callSeconds = 0;
+  state.callTimerInterval = setInterval(() => {
+    state.callSeconds++;
+    const m = Math.floor(state.callSeconds / 60);
+    const s = String(state.callSeconds % 60).padStart(2, '0');
+    document.getElementById('call-timer').textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+// ============================================================
+//  PROFILE
+// ============================================================
+function openProfileModal() {
+  document.getElementById('profile-displayname').value   = state.user.displayName;
+  document.getElementById('profile-avatar-preview').textContent = initials(state.user.displayName);
+  document.getElementById('modal-profile').classList.add('show');
+}
+
+async function saveProfile() {
+  const displayName = document.getElementById('profile-displayname').value.trim();
+  if (!displayName) return;
+
+  try {
+    const res = await fetch(`${SERVER_URL}/api/profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${state.token}` },
+      body: JSON.stringify({ displayName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Update failed');
+
+    state.user = data.user;
+    localStorage.setItem('he_user', JSON.stringify(state.user));
+    document.getElementById('my-displayname').textContent = state.user.displayName;
+    document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
+    closeModal('modal-profile');
+    toast('Profile updated!', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+// ============================================================
+//  MODALS
+// ============================================================
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// Close modal by clicking overlay
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(overlay.id);
+  });
+});
+
+// ============================================================
+//  UTILITIES
+// ============================================================
+function initials(name = '') {
+  return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?';
+}
+
+function getUserName(userId) {
+  return state.allUsers.find(u => u.id === userId)?.displayName || 'Someone';
+}
+
+function esc(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+function formatTime(ts) {
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function togglePwd(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const show  = input.type === 'password';
+  input.type  = show ? 'text' : 'password';
+  btn.textContent = show ? '🙈' : '👁️';
+}
+
+// ── Toast ──
+function toast(message, type = 'info', duration = 3500) {
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), duration);
+}

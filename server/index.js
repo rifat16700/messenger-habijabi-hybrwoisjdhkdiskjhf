@@ -10,9 +10,39 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const offlineBuffer = require('./offlineBuffer');
 const fcm = require('./fcmHelper');
+
+// ── Simple in-memory user store (persisted to users.json) ──
+// Format: { id, username, displayName, passwordHash, createdAt }
+const USERS_FILE = path.join(__dirname, 'users.json');
+function loadUsers() {
+  try {
+    if (fs.existsSync(USERS_FILE)) return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch (e) { /* ignore */ }
+  return [];
+}
+function saveUsers(users) {
+  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); } catch (e) { /* ignore */ }
+}
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + 'hybrid_engine_salt').digest('hex');
+}
+function generateToken(userId) {
+  const payload = Buffer.from(JSON.stringify({ userId, ts: Date.now() })).toString('base64');
+  const sig = crypto.createHash('sha256').update(payload + 'hybrid_jwt_secret').digest('hex');
+  return `${payload}.${sig}`;
+}
+function verifyToken(token) {
+  try {
+    const [payload, sig] = token.split('.');
+    const expected = crypto.createHash('sha256').update(payload + 'hybrid_jwt_secret').digest('hex');
+    if (sig !== expected) return null;
+    return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+  } catch { return null; }
+}
 
 // ──────────────────────────────────────────────
 //  Setup
@@ -463,7 +493,69 @@ io.on('connection', (socket) => {
 //  HTTP Endpoints
 // ──────────────────────────────────────────────
 
-// Health check / Keep-alive endpoint
+// ──────────────────────────────────────────────
+//  AUTH ENDPOINTS
+// ──────────────────────────────────────────────
+
+// Register
+app.post('/api/register', (req, res) => {
+  const { username, displayName, password } = req.body;
+  if (!username || !displayName || !password) return res.status(400).json({ error: 'Missing fields' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const users = loadUsers();
+  if (users.find(u => u.username === username.toLowerCase().trim())) {
+    return res.status(409).json({ error: 'Username already taken' });
+  }
+  const newUser = {
+    id: crypto.randomUUID(),
+    username: username.toLowerCase().trim(),
+    displayName: displayName.trim(),
+    passwordHash: hashPassword(password),
+    createdAt: new Date().toISOString(),
+  };
+  users.push(newUser);
+  saveUsers(users);
+  const token = generateToken(newUser.id);
+  res.json({ token, user: { id: newUser.id, username: newUser.username, displayName: newUser.displayName } });
+});
+
+// Login
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
+  const users = loadUsers();
+  const user = users.find(u => u.username === username.toLowerCase().trim());
+  if (!user || user.passwordHash !== hashPassword(password)) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+  const token = generateToken(user.id);
+  res.json({ token, user: { id: user.id, username: user.username, displayName: user.displayName } });
+});
+
+// Get all users (for search, no auth needed — only public info returned)
+app.get('/api/users', (req, res) => {
+  const { q } = req.query;
+  const users = loadUsers();
+  const filtered = users
+    .filter(u => !q || u.username.includes(q.toLowerCase()) || u.displayName.toLowerCase().includes(q.toLowerCase()))
+    .map(u => ({ id: u.id, username: u.username, displayName: u.displayName }));
+  res.json({ users: filtered });
+});
+
+// Update display name (requires token)
+app.put('/api/profile', (req, res) => {
+  const auth = req.headers.authorization?.split(' ')[1];
+  const decoded = verifyToken(auth || '');
+  if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.id === decoded.userId);
+  if (idx === -1) return res.status(404).json({ error: 'User not found' });
+  const { displayName } = req.body;
+  if (displayName) users[idx].displayName = displayName.trim();
+  saveUsers(users);
+  res.json({ user: { id: users[idx].id, username: users[idx].username, displayName: users[idx].displayName } });
+});
+
 app.get('/', (req, res) => {
   res.json({
     status: 'online',
