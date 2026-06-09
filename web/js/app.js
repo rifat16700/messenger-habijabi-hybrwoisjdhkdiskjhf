@@ -620,7 +620,7 @@ async function startCall(callType) {
     const targetFcmToken = peerData?.fcm_token || null;
 
     state.socket.emit('offer', { to: state.callPeerId, offer, callType, targetFcmToken });
-    document.getElementById('modal-outgoing-call').classList.add('show');
+    document.getElementById('call-status-text').textContent = 'Ringing…';
   } catch (e) {
     toast('Could not access camera/microphone: ' + e.message, 'error');
     cleanupCall();
