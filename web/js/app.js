@@ -33,6 +33,7 @@ const state = {
   isMuted: false,
   isCamOff: false,
   pendingOffer: null,    // { from, callerName, callType, offer }
+  iceCandidateQueue: [], // For queueing ICE candidates before remote description is set
 };
 
 // ── ICE Servers ──
@@ -217,6 +218,12 @@ async function initFirebase() {
     if (token) {
       console.log('[FCM] Token acquired:', token.slice(0, 15) + '...');
       state.fcmToken = token;
+      // Save FCM token to Supabase
+      if (state.user?.id) {
+        supabaseClient.from('app_users').update({ fcm_token: token }).eq('id', state.user.id).then(({ error }) => {
+          if (error) console.error('Failed to save FCM token to Supabase:', error);
+        });
+      }
     }
 
     messaging.onMessage((payload) => {
@@ -531,6 +538,13 @@ function connectSocket() {
     if (state.pc) {
       try {
         await state.pc.setRemoteDescription(new RTCSessionDescription(answer));
+        
+        // Process queued candidates
+        for (const c of state.iceCandidateQueue) {
+          try { await state.pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+        }
+        state.iceCandidateQueue = [];
+        
         startCallTimer();
         document.getElementById('call-status-text').textContent = 'Connected';
         document.getElementById('call-timer').style.display = '';
@@ -539,9 +553,13 @@ function connectSocket() {
   });
 
   state.socket.on('ice_candidate', async ({ from, candidate }) => {
-    if (state.pc && candidate) {
-      try { await state.pc.addIceCandidate(new RTCIceCandidate(candidate)); }
-      catch (e) { /* ignore */ }
+    if (candidate) {
+      if (state.pc && state.pc.remoteDescription) {
+        try { await state.pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (e) { /* ignore */ }
+      } else {
+        state.iceCandidateQueue.push(candidate);
+      }
     }
   });
 
@@ -597,7 +615,12 @@ async function startCall(callType) {
     const offer = await state.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === 'video' });
     await state.pc.setLocalDescription(offer);
 
-    state.socket.emit('offer', { to: state.callPeerId, offer, callType });
+    // Fetch target FCM token from Supabase for offline push notification
+    const { data: peerData } = await supabaseClient.from('app_users').select('fcm_token').eq('id', state.callPeerId).single();
+    const targetFcmToken = peerData?.fcm_token || null;
+
+    state.socket.emit('offer', { to: state.callPeerId, offer, callType, targetFcmToken });
+    document.getElementById('modal-outgoing-call').classList.add('show');
   } catch (e) {
     toast('Could not access camera/microphone: ' + e.message, 'error');
     cleanupCall();
@@ -638,6 +661,13 @@ async function acceptCall() {
     state.localStream.getTracks().forEach(t => state.pc.addTrack(t, state.localStream));
 
     await state.pc.setRemoteDescription(new RTCSessionDescription(offer));
+    
+    // Process queued candidates
+    for (const c of state.iceCandidateQueue) {
+      try { await state.pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+    }
+    state.iceCandidateQueue = [];
+
     const answer = await state.pc.createAnswer();
     await state.pc.setLocalDescription(answer);
 
@@ -698,6 +728,7 @@ function cleanupCall() {
   }
   if (state.pc) { state.pc.close(); state.pc = null; }
 
+  state.iceCandidateQueue = [];
   document.getElementById('local-video').srcObject  = null;
   document.getElementById('remote-video').srcObject = null;
   state.callPeerId = null;

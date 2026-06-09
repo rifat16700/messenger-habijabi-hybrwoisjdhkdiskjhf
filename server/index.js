@@ -248,7 +248,7 @@ io.on('connection', (socket) => {
 
   // Offer (call initiation)
   socket.on('offer', (data) => {
-    const { to, offer, callType } = data;
+    const { to, offer, callType, targetFcmToken } = data;
     const fromUser = onlineUsers.get(socket.userId);
     const targetSocketId = getSocketId(to);
 
@@ -261,8 +261,20 @@ io.on('connection', (socket) => {
       });
       console.log(`[WebRTC] Offer from ${socket.userId} to ${to}`);
     } else if (!targetSocketId) {
-      // User offline — try FCM
-      console.log(`[WebRTC] Target ${to} offline — attempting FCM call notification`);
+      // User offline — try FCM if we received the token from the caller
+      if (targetFcmToken && fromUser) {
+        console.log(`[WebRTC] Target ${to} offline — sending FCM push via provided token`);
+        fcm.sendCallNotification({
+          fcmToken: targetFcmToken,
+          callerName: fromUser.displayName || fromUser.username,
+          callerId: socket.userId,
+          callType: callType || 'video'
+        });
+        // We still emit call_failed to the caller so they know the user isn't actively online right now
+        // Or we could wait a few seconds. For simplicity, we just say offline.
+      } else {
+        console.log(`[WebRTC] Target ${to} offline — no FCM token provided`);
+      }
       socket.emit('call_failed', { to, reason: 'user_offline' });
     }
   });
