@@ -6,36 +6,73 @@ const GITHUB_OWNER = process.env.GITHUB_REPO_OWNER || 'rifat16700';
 const GITHUB_REPO = process.env.GITHUB_REPO_NAME || 'messenger-habijabi-hybrwoisjdhkdiskjhf';
 const BRANCH = 'main';
 
-// ── Instant Profile Sync ──
-// Triggered when user profile data updates.
+// ── Generic GitHub file read/write ──
+async function ghGet(path) {
+  const res = await axios.get(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`,
+    { headers: { Authorization: `token ${GITHUB_TOKEN}` } }
+  );
+  return res.data; // { sha, content (base64) }
+}
+
+async function ghPut(path, content, message, sha = null) {
+  const payload = {
+    message,
+    content: Buffer.from(typeof content === 'string' ? content : JSON.stringify(content, null, 2)).toString('base64'),
+    branch: BRANCH,
+  };
+  if (sha) payload.sha = sha;
+  await axios.put(
+    `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`,
+    payload,
+    { headers: { Authorization: `token ${GITHUB_TOKEN}` } }
+  );
+}
+
+// ── Registry (full user list backup — restores users.json after HF restart) ──
+// Path: database/_registry.json
+// Contains all users including passwordHash (hashes are one-way, not reversible)
+const REGISTRY_PATH = 'database/_registry.json';
+
+async function saveRegistry(users) {
+  if (!GITHUB_TOKEN) return;
+  try {
+    let sha = null;
+    try { sha = (await ghGet(REGISTRY_PATH)).sha; } catch (e) { /* new file */ }
+    await ghPut(REGISTRY_PATH, users, `Registry sync — ${users.length} users`, sha);
+    console.log(`[GitHub] Registry synced (${users.length} users)`);
+  } catch (err) {
+    console.error('[GitHub] Registry sync failed:', err.message);
+  }
+}
+
+async function loadRegistry() {
+  if (!GITHUB_TOKEN) return [];
+  try {
+    const data = await ghGet(REGISTRY_PATH);
+    const decoded = Buffer.from(data.content, 'base64').toString('utf8');
+    const users = JSON.parse(decoded);
+    console.log(`[GitHub] Registry loaded — ${users.length} users`);
+    return users;
+  } catch (err) {
+    if (err.response && err.response.status === 404) return []; // Not yet created
+    console.error('[GitHub] Registry load failed:', err.message);
+    return [];
+  }
+}
+
+// ── Per-user Public Profile Sync ──
+// Path: database/users/{uid}.json (public — no passwordHash)
 async function saveProfile(userId, profileData) {
   if (!GITHUB_TOKEN) return;
   const path = `database/users/${userId}.json`;
   try {
     let sha = null;
-    // Check if file exists to get SHA
-    try {
-      const res = await axios.get(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-        headers: { Authorization: `token ${GITHUB_TOKEN}` }
-      });
-      sha = res.data.sha;
-    } catch (e) {
-      if (e.response && e.response.status !== 404) throw e;
-    }
-
-    const payload = {
-      message: `Update profile for ${userId}`,
-      content: Buffer.from(JSON.stringify(profileData)).toString('base64'),
-      branch: BRANCH
-    };
-    if (sha) payload.sha = sha;
-
-    await axios.put(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, payload, {
-      headers: { Authorization: `token ${GITHUB_TOKEN}` }
-    });
-    console.log(`[GitHub] Instant sync complete for profile ${userId}`);
+    try { sha = (await ghGet(path)).sha; } catch (e) { /* new file */ }
+    await ghPut(path, profileData, `Update profile for ${userId}`, sha);
+    console.log(`[GitHub] Profile synced for ${userId}`);
   } catch (error) {
-    console.error(`[GitHub] Failed to sync profile ${userId}:`, error.message);
+    console.error(`[GitHub] Profile sync failed for ${userId}:`, error.message);
   }
 }
 
@@ -43,19 +80,14 @@ async function deleteProfile(userId) {
   if (!GITHUB_TOKEN) return;
   const path = `database/users/${userId}.json`;
   try {
-    const res = await axios.get(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-      headers: { Authorization: `token ${GITHUB_TOKEN}` }
-    });
-    const sha = res.data.sha;
-
-    await axios.delete(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-      headers: { Authorization: `token ${GITHUB_TOKEN}` },
-      data: {
-        message: `Delete profile for ${userId}`,
-        sha,
-        branch: BRANCH
+    const data = await ghGet(path);
+    await axios.delete(
+      `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`,
+      {
+        headers: { Authorization: `token ${GITHUB_TOKEN}` },
+        data: { message: `Delete profile for ${userId}`, sha: data.sha, branch: BRANCH }
       }
-    });
+    );
     console.log(`[GitHub] Deleted profile ${userId}`);
   } catch (error) {
     console.error(`[GitHub] Failed to delete profile ${userId}:`, error.message);
@@ -69,22 +101,20 @@ let syncTimer = null;
 
 function queueOfflineMessageSync(receiverId, messageData) {
   offlineMessageQueue.push({ receiverId, messageData, timestamp: Date.now() });
-  console.log(`[GitHub Queue] Added offline message for ${receiverId}. Queue length: ${offlineMessageQueue.length}`);
+  console.log(`[GitHub Queue] Added offline message for ${receiverId}. Queue: ${offlineMessageQueue.length}`);
   scheduleNextSync();
 }
 
 function scheduleNextSync() {
-  if (syncTimer) return; // Already scheduled
+  if (syncTimer) return;
   if (offlineMessageQueue.length === 0) return;
 
   let delayMs;
   if (offlineMessageQueue.length > 5) {
-    // High load: Random between 5 and 10 minutes
     const minMs = 5 * 60 * 1000;
     const maxMs = 10 * 60 * 1000;
     delayMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
   } else {
-    // Low load: Approx 30 minutes
     delayMs = 30 * 60 * 1000;
   }
 
@@ -97,36 +127,27 @@ function scheduleNextSync() {
 
 async function executeBatchSync() {
   if (!GITHUB_TOKEN || offlineMessageQueue.length === 0) return;
-  
-  const batchToSync = [...offlineMessageQueue];
-  offlineMessageQueue = []; // Clear queue
-  
-  console.log(`[GitHub Batch] Starting batch sync of ${batchToSync.length} offline messages.`);
 
-  // Compress/Minify JSON for batch to save space
-  const batchData = JSON.stringify(batchToSync); // Minified JSON
-  
+  const batchToSync = [...offlineMessageQueue];
+  offlineMessageQueue = [];
+
+  console.log(`[GitHub Batch] Syncing ${batchToSync.length} offline messages.`);
   const path = `database/offline_batches/batch_${Date.now()}.json`;
-  
+
   try {
-    await axios.put(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
-      message: `Batch sync of ${batchToSync.length} offline messages`,
-      content: Buffer.from(batchData).toString('base64'),
-      branch: BRANCH
-    }, {
-      headers: { Authorization: `token ${GITHUB_TOKEN}` }
-    });
-    console.log(`[GitHub Batch] Successfully synced batch to ${path}`);
+    await ghPut(path, batchToSync, `Batch sync of ${batchToSync.length} offline messages`);
+    console.log(`[GitHub Batch] Synced to ${path}`);
   } catch (error) {
-    console.error(`[GitHub Batch] Failed to sync batch:`, error.message);
-    // Put them back in queue on failure
+    console.error(`[GitHub Batch] Sync failed:`, error.message);
     offlineMessageQueue = [...batchToSync, ...offlineMessageQueue];
-    scheduleNextSync(); // Retry later
+    scheduleNextSync();
   }
 }
 
 module.exports = {
   saveProfile,
+  saveRegistry,
+  loadRegistry,
   deleteProfile,
   queueOfflineMessageSync,
 };

@@ -106,13 +106,14 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedUser  = localStorage.getItem('he_user');
   if (savedToken && savedUser) {
     const parsedUser = JSON.parse(savedUser);
-    // Detect old Supabase UUID format (contains dashes) — force re-login
-    if (parsedUser.id && parsedUser.id.includes('-')) {
+    // Valid UID = exactly 10 digits (our new system).
+    // Old Supabase UUIDs (with dashes), base64 tokens, or anything else → force re-login.
+    const isValidUID = /^\d{10}$/.test(parsedUser.id);
+    if (!isValidUID) {
       localStorage.removeItem('he_token');
       localStorage.removeItem('he_user');
       showView('auth');
-      // Show a friendly message after a short delay
-      setTimeout(() => toast('নতুন সিস্টেমে স্বাগতম! অনুগ্রহ করে আবার Sign In করুন অথবা নতুন Account তৈরি করুন।', 'info', 6000), 500);
+      setTimeout(() => toast('নতুন সিস্টেমে আপডেট হয়েছে! দয়া করে আবার Sign In করুন অথবা নতুন Account তৈরি করুন।', 'info', 7000), 300);
     } else {
       state.token = savedToken;
       state.user  = parsedUser;
@@ -1137,7 +1138,23 @@ function showSettings() {
   document.getElementById('profile-avatar-preview').textContent = initials(state.user.displayName);
   document.getElementById('settings-my-name').textContent      = state.user.displayName || '';
   document.getElementById('settings-my-username').textContent  = `@${state.user.username || ''}`;
-  document.getElementById('settings-my-uid').textContent       = state.user.id || '';
+  const uid = state.user.id || '';
+  const uidEl = document.getElementById('settings-my-uid');
+  if (uidEl) {
+    // Only show if it's our valid 10-digit numeric UID
+    if (/^\d{10}$/.test(uid)) {
+      uidEl.textContent = uid;
+      uidEl.style.letterSpacing = '3px';
+      uidEl.style.fontFamily = 'monospace';
+      uidEl.title = 'Click to copy';
+      uidEl.style.cursor = 'pointer';
+      uidEl.onclick = () => { navigator.clipboard?.writeText(uid); toast('UID copied!', 'success'); };
+    } else {
+      uidEl.textContent = 'Re-login required';
+      uidEl.style.color = 'var(--error, #f87171)';
+    }
+  }
+
   
   // Account section
   document.getElementById('account-email-display').textContent = state.user.email || state.user.username || '—';

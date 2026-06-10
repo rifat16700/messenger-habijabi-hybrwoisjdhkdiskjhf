@@ -50,6 +50,8 @@ function loadUsers() {
 }
 function saveUsers(users) {
   try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); } catch (e) { /* ignore */ }
+  // Async sync to GitHub registry (HF Space ephemeral — this is the backup)
+  ghProfiles.saveRegistry(users).catch(() => {});
 }
 function publicUser(u) {
   const { passwordHash, ...rest } = u;
@@ -111,6 +113,30 @@ const io = new Server(server, {
 
 // Initialize Firebase (gracefully skips if config not set)
 fcm.initFirebase();
+
+// ── On Startup: Restore users.json from GitHub if empty ──
+// HuggingFace Space restarts wipe the filesystem — restore from GitHub backup.
+(async () => {
+  try {
+    const local = loadUsers();
+    if (local.length === 0) {
+      console.log('[Startup] users.json is empty — restoring from GitHub registry...');
+      const registry = await ghProfiles.loadRegistry();
+      if (registry.length > 0) {
+        saveUsers(registry);
+        console.log(`[Startup] Restored ${registry.length} users from GitHub registry.`);
+      } else {
+        console.log('[Startup] GitHub registry is also empty — fresh start.');
+      }
+    } else {
+      console.log(`[Startup] Loaded ${local.length} users from local users.json.`);
+      // Sync to GitHub in background to keep registry fresh
+      ghProfiles.saveRegistry(local).catch(() => {});
+    }
+  } catch (err) {
+    console.error('[Startup] Registry restore error:', err.message);
+  }
+})();
 
 // ──────────────────────────────────────────────
 //  In-Memory State
