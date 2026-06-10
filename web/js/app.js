@@ -3,7 +3,13 @@
 //  Custom Auth + Real-time Chat + WebRTC Calling
 // ============================================================
 
-const SERVER_URL = 'https://rifat1670-app-messenger.hf.space';
+const SERVER_URL    = 'https://rifat1670-app-messenger.hf.space';
+const GITHUB_OWNER  = 'rifat16700';
+const GITHUB_REPO   = 'messenger-habijabi-hybrwoisjdhkdiskjhf';
+const GITHUB_BRANCH = 'main';
+function githubProfileUrl(userId) {
+  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/profiles/${userId}.json`;
+}
 
 // ── Supabase Config ──
 const SUPABASE_URL = 'https://spiotvupwogvtxlziezj.supabase.co';
@@ -13,14 +19,15 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 // ── State ──
 const state = {
   token: null,
-  user: null,            // { id, username, displayName }
+  user: null,            // { id, username, displayName, role, bio, avatarColor }
   fcmToken: null,
   socket: null,
-  allUsers: [],          // [{ id, username, displayName }]
+  allUsers: [],          // [{ id, username, displayName, role }]
   onlineUserIds: new Set(),
-  activeChat: null,      // { id, username, displayName }
+  activeChat: null,      // { id, username, displayName, role }
   messages: {},          // { userId: [{text, from, ts}] }
   sidebarTab: 'all',
+  userRoles: {},         // { userId: role } — cached from GitHub profiles
 
   // WebRTC
   pc: null,
@@ -198,10 +205,41 @@ function onAuthSuccess(token, user) {
   localStorage.setItem('he_token', token);
   localStorage.setItem('he_user', JSON.stringify(user));
 
-  requestNotificationPermission();
+  // Fetch full profile (with role) from GitHub
+  fetchMyProfile();
 
+  requestNotificationPermission();
   showView('main');
   initApp();
+}
+
+// Fetch our own profile from GitHub (role, bio, etc.)
+async function fetchMyProfile() {
+  try {
+    const r = await fetch(githubProfileUrl(state.user.id), { cache: 'no-cache' });
+    if (!r.ok) return;
+    const profile = await r.json();
+    state.user.role = profile.role || 'user';
+    state.user.bio  = profile.bio  || '';
+    state.user.avatarColor = profile.avatarColor || '';
+    localStorage.setItem('he_user', JSON.stringify(state.user));
+    // Update sidebar avatar indicator for moderator
+    updateMyRoleUI();
+  } catch (e) { /* GitHub not yet available */ }
+}
+
+function updateMyRoleUI() {
+  const roleEl = document.getElementById('my-role-badge');
+  if (!roleEl) return;
+  if (state.user?.role === 'moderator') {
+    roleEl.style.display = 'inline-flex';
+    roleEl.title = 'Moderator';
+  } else if (state.user?.role === 'admin') {
+    roleEl.style.display = 'inline-flex';
+    roleEl.title = 'Admin';
+  } else {
+    roleEl.style.display = 'none';
+  }
 }
 
 function logout() {
@@ -304,10 +342,41 @@ async function fetchUsers() {
       .filter(u => u.id !== state.user.id)
       .map(u => ({ id: u.id, username: u.username, displayName: u.display_name }));
       
+    // Async load roles from GitHub
+    state.allUsers.forEach(u => {
+      fetch(githubProfileUrl(u.id), { cache: 'no-cache' })
+        .then(r => r.json())
+        .then(profile => {
+          state.userRoles[u.id] = profile.role || 'user';
+          if (state.activeChat?.id === u.id) updateChatRoleUI(u.id);
+          renderUserList();
+        })
+        .catch(() => {});
+    });
+
     renderUserList();
   } catch (e) {
     console.error('fetchUsers:', e);
   }
+}
+
+function updateChatRoleUI(userId) {
+  const role = state.userRoles[userId] || state.allUsers.find(u => u.id === userId)?.role || 'user';
+  document.getElementById('chat-role-badge').innerHTML = roleBadgeHTML(role);
+}
+
+// SVG badges for roles
+const MODERATOR_BADGE = `<span class="role-badge mod" title="Moderator">
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+</span>`;
+const ADMIN_BADGE = `<span class="role-badge admin" title="Admin">
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+</span>`;
+
+function roleBadgeHTML(role) {
+  if (role === 'moderator') return MODERATOR_BADGE;
+  if (role === 'admin') return ADMIN_BADGE;
+  return '';
 }
 
 function renderUserList() {
@@ -322,18 +391,19 @@ function renderUserList() {
   );
 
   if (!users.length) {
-    list.innerHTML = `<div class="no-chats"><div class="icon">👥</div><p>${query ? 'No results found.' : 'No users yet.'}</p></div>`;
+    list.innerHTML = `<div class="no-chats"><div class="icon"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><p>${query ? 'No results found.' : 'No users yet.'}</p></div>`;
     return;
   }
 
   list.innerHTML = users.map(u => {
     const isOnline = state.onlineUserIds.has(u.id);
     const isActive = state.activeChat?.id === u.id;
+    const role     = state.userRoles[u.id] || u.role || 'user';
     return `
       <div class="user-item ${isActive ? 'active' : ''}" onclick="openChat('${u.id}')">
         <div class="avatar sm">${initials(u.displayName)}${isOnline ? '<div class="online-dot"></div>' : ''}</div>
         <div class="user-item-info">
-          <div class="user-item-name">${esc(u.displayName)}</div>
+          <div class="user-item-name">${esc(u.displayName)} ${roleBadgeHTML(role)}</div>
           <div class="user-item-sub">@${esc(u.username)} · ${isOnline ? '<span style="color:var(--online)">Online</span>' : 'Offline'}</div>
         </div>
       </div>`;
@@ -364,7 +434,18 @@ function openChat(userId) {
   // Update header
   document.getElementById('chat-avatar').textContent = initials(user.displayName);
   document.getElementById('chat-name').textContent   = user.displayName;
+  updateChatRoleUI(userId);
   updateChatStatus(userId);
+
+  // Moderator Action Button Visibility
+  const modBtn = document.getElementById('btn-mod-action');
+  if (modBtn) {
+    if (state.user?.role === 'moderator' || state.user?.role === 'admin') {
+      modBtn.style.display = 'inline-flex';
+    } else {
+      modBtn.style.display = 'none';
+    }
+  }
 
   // Show chat panel
   document.getElementById('chat-empty').style.display  = 'none';
@@ -641,6 +722,15 @@ function connectSocket() {
     list.forEach(u => state.onlineUserIds.add(u.userId));
     renderUserList();
     updateChatStatus();
+  });
+
+  state.socket.on('role_updated', ({ role }) => {
+    toast(`Your role has been updated to ${role}`, 'info');
+    state.user.role = role;
+    localStorage.setItem('he_user', JSON.stringify(state.user));
+    updateMyRoleUI();
+    // Refresh user list logic to reflect new moderator powers
+    if (state.activeChat) openChat(state.activeChat.id);
   });
 
   state.socket.on('user_online', ({ userId }) => {
@@ -969,27 +1059,43 @@ function startCallTimer() {
 //  PROFILE
 // ============================================================
 function openProfileModal() {
-  document.getElementById('profile-displayname').value   = state.user.displayName;
+  document.getElementById('profile-displayname').value = state.user.displayName || '';
+  document.getElementById('profile-bio').value         = state.user.bio || '';
   document.getElementById('profile-avatar-preview').textContent = initials(state.user.displayName);
   document.getElementById('modal-profile').classList.add('show');
 }
 
 async function saveProfile() {
   const displayName = document.getElementById('profile-displayname').value.trim();
+  const bio = document.getElementById('profile-bio').value.trim();
   if (!displayName) return;
 
   try {
-    const { error } = await supabaseClient
-      .from('app_users')
-      .update({ display_name: displayName })
-      .eq('id', state.user.id);
+    const res = await fetch(`${SERVER_URL}/api/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${state.token}`
+      },
+      body: JSON.stringify({ displayName, bio })
+    });
 
-    if (error) throw new Error(error.message);
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update profile');
+    }
 
-    state.user.displayName = displayName;
+    const { user } = await res.json();
+
+    // Update local state
+    state.user.displayName = user.displayName;
+    state.user.bio = user.bio;
     localStorage.setItem('he_user', JSON.stringify(state.user));
+
+    // Update UI
     document.getElementById('my-displayname').textContent = state.user.displayName;
     document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
+    
     closeModal('modal-profile');
     toast('Profile updated!', 'success');
   } catch (e) {

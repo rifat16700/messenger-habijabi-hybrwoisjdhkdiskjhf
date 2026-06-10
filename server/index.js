@@ -13,7 +13,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const offlineBuffer = require('./offlineBuffer');
-const fcm = require('./fcmHelper');
+const fcm           = require('./fcmHelper');
+const ghProfiles    = require('./githubProfiles');
 
 // ── Persistent FCM token store ──
 // User offline থাকলেও তার token রেখে দেওয়া
@@ -38,7 +39,7 @@ function getFcmToken(userId) {
 }
 
 // ── Simple in-memory user store (persisted to users.json) ──
-// Format: { id, username, displayName, passwordHash, createdAt }
+// Format: { id, username, displayName, passwordHash, role, bio, avatarColor, createdAt }
 const USERS_FILE = path.join(__dirname, 'users.json');
 function loadUsers() {
   try {
@@ -49,6 +50,26 @@ function loadUsers() {
 function saveUsers(users) {
   try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); } catch (e) { /* ignore */ }
 }
+function publicUser(u) {
+  return { id: u.id, username: u.username, displayName: u.displayName,
+           role: u.role || 'user', bio: u.bio || '', avatarColor: u.avatarColor || '#6366f1' };
+}
+
+// ── Admin password ──
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'rifat123R@#$16700';
+const ADMIN_SESSIONS = new Set(); // simple in-memory session tokens
+function generateAdminToken() {
+  const tok = crypto.randomBytes(32).toString('hex');
+  ADMIN_SESSIONS.add(tok);
+  // Auto-expire after 12 hours
+  setTimeout(() => ADMIN_SESSIONS.delete(tok), 12 * 60 * 60 * 1000);
+  return tok;
+}
+function verifyAdminToken(req) {
+  const tok = req.headers['x-admin-token'] || req.query.adminToken;
+  return ADMIN_SESSIONS.has(tok);
+}
+
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password + 'hybrid_engine_salt').digest('hex');
 }
@@ -618,12 +639,19 @@ app.post('/api/register', (req, res) => {
     username: username.toLowerCase().trim(),
     displayName: displayName.trim(),
     passwordHash: hashPassword(password),
+    role: 'user',
+    bio: '',
+    avatarColor: `hsl(${Math.floor(Math.random()*360)},60%,55%)`,
     createdAt: new Date().toISOString(),
   };
   users.push(newUser);
   saveUsers(users);
   const token = generateToken(newUser.id);
-  res.json({ token, user: { id: newUser.id, username: newUser.username, displayName: newUser.displayName } });
+
+  // Save public profile to GitHub (async, don't block response)
+  ghProfiles.saveProfile(newUser.id, publicUser(newUser)).catch(() => {});
+
+  res.json({ token, user: publicUser(newUser) });
 });
 
 // Login
@@ -636,20 +664,39 @@ app.post('/api/login', (req, res) => {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
   const token = generateToken(user.id);
-  res.json({ token, user: { id: user.id, username: user.username, displayName: user.displayName } });
+  res.json({ token, user: publicUser(user) });
 });
 
-// Get all users (for search, no auth needed — only public info returned)
+// Get all users (public info + role/bio)
 app.get('/api/users', (req, res) => {
   const { q } = req.query;
   const users = loadUsers();
   const filtered = users
     .filter(u => !q || u.username.includes(q.toLowerCase()) || u.displayName.toLowerCase().includes(q.toLowerCase()))
-    .map(u => ({ id: u.id, username: u.username, displayName: u.displayName }));
+    .map(publicUser);
   res.json({ users: filtered });
 });
 
-// Update display name (requires token)
+// Get my full profile
+app.get('/api/users/me', (req, res) => {
+  const auth = req.headers.authorization?.split(' ')[1];
+  const decoded = verifyToken(auth || '');
+  if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+  const users = loadUsers();
+  const user = users.find(u => u.id === decoded.userId);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: publicUser(user) });
+});
+
+// Get any user's public profile
+app.get('/api/users/:id', (req, res) => {
+  const users = loadUsers();
+  const user = users.find(u => u.id === req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: publicUser(user) });
+});
+
+// Update profile (requires token)
 app.put('/api/profile', (req, res) => {
   const auth = req.headers.authorization?.split(' ')[1];
   const decoded = verifyToken(auth || '');
@@ -657,10 +704,90 @@ app.put('/api/profile', (req, res) => {
   const users = loadUsers();
   const idx = users.findIndex(u => u.id === decoded.userId);
   if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  const { displayName } = req.body;
+  const { displayName, bio } = req.body;
   if (displayName) users[idx].displayName = displayName.trim();
+  if (bio !== undefined) users[idx].bio = bio.trim().slice(0, 200);
   saveUsers(users);
-  res.json({ user: { id: users[idx].id, username: users[idx].username, displayName: users[idx].displayName } });
+
+  // Sync to GitHub profiles
+  ghProfiles.saveProfile(users[idx].id, publicUser(users[idx])).catch(() => {});
+
+  res.json({ user: publicUser(users[idx]) });
+});
+
+// ──────────────────────────────────────────────
+//  ADMIN ENDPOINTS
+// ──────────────────────────────────────────────
+
+// Admin login
+app.post('/admin/api/login', (req, res) => {
+  const { password } = req.body;
+  if (password !== ADMIN_PASSWORD) {
+    return res.status(401).json({ error: 'Wrong password' });
+  }
+  const token = generateAdminToken();
+  res.json({ token });
+});
+
+// Admin: get all users
+app.get('/admin/api/users', (req, res) => {
+  if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const users = loadUsers().map(u => ({
+    ...publicUser(u),
+    createdAt: u.createdAt,
+    isOnline: onlineUsers.has(u.id),
+    pendingMessages: offlineBuffer.getPendingCount(u.id),
+  }));
+  res.json({ users });
+});
+
+// Admin: change user role
+app.put('/admin/api/users/:id/role', (req, res) => {
+  if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { role } = req.body;
+  if (!['user', 'moderator', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  const users = loadUsers();
+  const idx = users.findIndex(u => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'User not found' });
+  users[idx].role = role;
+  saveUsers(users);
+  // Sync role change to GitHub
+  ghProfiles.saveProfile(users[idx].id, publicUser(users[idx])).catch(() => {});
+  // Notify the user live via socket if online
+  const sockId = getSocketId(req.params.id);
+  if (sockId) io.to(sockId).emit('role_updated', { role });
+  res.json({ user: publicUser(users[idx]) });
+});
+
+// Admin: server stats
+app.get('/admin/api/stats', (req, res) => {
+  if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const users = loadUsers();
+  res.json({
+    totalUsers: users.length,
+    onlineNow: onlineUsers.size,
+    conferenceRooms: conferenceRooms.size,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Admin: delete user
+app.delete('/admin/api/users/:id', (req, res) => {
+  if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
+  let users = loadUsers();
+  const idx = users.findIndex(u => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'User not found' });
+  const userId = users[idx].id;
+  users.splice(idx, 1);
+  saveUsers(users);
+  // Remove from GitHub
+  ghProfiles.deleteProfile(userId).catch(() => {});
+  res.json({ success: true });
+});
+
+// Serve admin panel HTML
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'web', 'admin.html'));
 });
 
 app.get('/', (req, res) => {

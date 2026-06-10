@@ -7,6 +7,7 @@
   <meta name="description" content="Zero-cost, zero-trace, end-to-end encrypted P2P messenger." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
   <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/badges.css" />
 </head>
 <body>
 
@@ -174,10 +175,17 @@
           </button>
           <div class="avatar sm" id="chat-avatar">?</div>
           <div class="chat-header-info">
-            <div class="chat-header-name" id="chat-name">—</div>
+            <div class="chat-header-name">
+              <span id="chat-name">—</span>
+              <span id="chat-role-badge"></span>
+            </div>
             <div class="chat-header-status" id="chat-status">Offline</div>
           </div>
           <div class="chat-header-actions">
+            <!-- Moderator Extra Action Button (hidden by default) -->
+            <button class="call-btn mod-action-btn" title="Moderator Action" id="btn-mod-action" style="display:none; color:var(--warning)" onclick="alert('Moderator powers coming soon!')">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+            </button>
             <button class="call-btn" title="Audio Call" onclick="startCall('audio')" id="btn-audio-call">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.5a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.5 16l.42.92z"/></svg>
             </button>
@@ -273,6 +281,15 @@
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         </span>
         <input type="text" id="profile-displayname" placeholder="Your display name" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Bio</label>
+      <div class="input-wrap">
+        <span class="icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <input type="text" id="profile-bio" placeholder="Write something about yourself..." maxlength="200" />
       </div>
     </div>
     <div style="display:flex;gap:10px;margin-top:8px;">
