@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const ghProfiles = require('./githubProfiles');
 
 const BUFFER_FILE = path.join(__dirname, 'offline_buffer.json');
 
@@ -53,6 +54,9 @@ async function saveOfflineMessage(receiverId, message) {
 
   buffer[receiverId].push(entry);
   writeBuffer(buffer);
+
+  // Queue to GitHub (batch sync logic)
+  ghProfiles.queueOfflineMessageSync(receiverId, entry);
 
   console.log(`[OfflineBuffer] Saved message for ${receiverId} (${entry.id})`);
   return { success: true, entryId: entry.id };

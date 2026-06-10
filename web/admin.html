@@ -194,6 +194,10 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         Users
       </div>
+      <div class="nav-item" onclick="showPage('broadcast')" id="nav-broadcast">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        Broadcast
+      </div>
 
       <div class="admin-sidebar-footer">
         <div class="logout-btn" onclick="adminLogout()">
@@ -250,6 +254,23 @@
               <tr><td colspan="6" style="text-align:center;color:var(--text3);padding:40px">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- BROADCAST -->
+      <div class="page" id="page-broadcast">
+        <div class="page-title">Send Broadcast Message</div>
+        <div style="background:var(--bg2); padding:24px; border:1px solid var(--border); border-radius:var(--radius); max-width: 600px;">
+          <p style="color:var(--text2); font-size:14px; margin-bottom:20px;">Send a push notification and in-app message to all users (online and offline).</p>
+          <div class="field">
+            <label>Title (Optional)</label>
+            <input type="text" id="bc-title" placeholder="e.g. System Update"/>
+          </div>
+          <div class="field">
+            <label>Message</label>
+            <textarea id="bc-msg" style="width:100%; padding:14px; background:var(--bg3); border:1px solid var(--border); border-radius:10px; color:var(--text); font-family:inherit; min-height:100px; outline:none;" placeholder="Type your message here..."></textarea>
+          </div>
+          <button class="btn-primary" onclick="sendBroadcast()" style="width:auto; padding:12px 24px;">Send to All Users</button>
         </div>
       </div>
     </main>
@@ -440,6 +461,27 @@
     el.textContent = msg;
     document.getElementById('toast').appendChild(el);
     setTimeout(() => el.remove(), 3500);
+  }
+
+  async function sendBroadcast() {
+    const title = document.getElementById('bc-title').value.trim();
+    const message = document.getElementById('bc-msg').value.trim();
+    if (!message) return toast('Message is required', 'error');
+    if (!confirm('Send this message to ALL users?')) return;
+    
+    try {
+      const r = await fetch(`${SERVER}/admin/api/broadcast`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+        body: JSON.stringify({ title, message }),
+      });
+      if (!r.ok) throw new Error('Failed');
+      const d = await r.json();
+      toast(`Sent to ${d.onlineReached} online, ${d.offlineReached} offline users`, 'success');
+      document.getElementById('bc-msg').value = '';
+    } catch (e) {
+      toast('Failed to send broadcast', 'error');
+    }
   }
 
   // Auto-refresh dashboard every 30s

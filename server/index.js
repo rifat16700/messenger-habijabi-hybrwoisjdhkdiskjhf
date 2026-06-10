@@ -15,6 +15,7 @@ const crypto = require('crypto');
 const offlineBuffer = require('./offlineBuffer');
 const fcm           = require('./fcmHelper');
 const ghProfiles    = require('./githubProfiles');
+const uidGenerator  = require('./uidGenerator');
 
 // ── Persistent FCM token store ──
 // User offline থাকলেও তার token রেখে দেওয়া
@@ -51,8 +52,13 @@ function saveUsers(users) {
   try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); } catch (e) { /* ignore */ }
 }
 function publicUser(u) {
-  return { id: u.id, username: u.username, displayName: u.displayName,
-           role: u.role || 'user', bio: u.bio || '', avatarColor: u.avatarColor || '#6366f1' };
+  const { passwordHash, ...rest } = u;
+  return {
+    ...rest,
+    role: u.role || 'user',
+    bio: u.bio || '',
+    avatarColor: u.avatarColor || '#6366f1'
+  };
 }
 
 // ── Admin password ──
@@ -635,7 +641,7 @@ app.post('/api/register', (req, res) => {
     return res.status(409).json({ error: 'Username already taken' });
   }
   const newUser = {
-    id: crypto.randomUUID(),
+    id: uidGenerator.generateUID(),
     username: username.toLowerCase().trim(),
     displayName: displayName.trim(),
     passwordHash: hashPassword(password),
@@ -704,9 +710,14 @@ app.put('/api/profile', (req, res) => {
   const users = loadUsers();
   const idx = users.findIndex(u => u.id === decoded.userId);
   if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  const { displayName, bio } = req.body;
-  if (displayName) users[idx].displayName = displayName.trim();
-  if (bio !== undefined) users[idx].bio = bio.trim().slice(0, 200);
+  const allowedFields = ['displayName', 'bio', 'avatarUrl', 'coverUrl', 'status', 'location', 'website'];
+  allowedFields.forEach(field => {
+    if (req.body[field] !== undefined) {
+      if (typeof req.body[field] === 'string') {
+        users[idx][field] = req.body[field].trim();
+      }
+    }
+  });
   saveUsers(users);
 
   // Sync to GitHub profiles
@@ -783,6 +794,35 @@ app.delete('/admin/api/users/:id', (req, res) => {
   // Remove from GitHub
   ghProfiles.deleteProfile(userId).catch(() => {});
   res.json({ success: true });
+});
+
+// Admin: Broadcast message to all users
+app.post('/admin/api/broadcast', (req, res) => {
+  if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
+  const { title, message } = req.body;
+  if (!message) return res.status(400).json({ error: 'Message is required' });
+  
+  // Broadcast via socket to all online users
+  io.emit('admin_broadcast', { title: title || 'Admin Announcement', message, timestamp: new Date().toISOString() });
+  
+  // Also push to FCM for offline users (all stored FCM tokens)
+  const tokens = loadFcmTokens();
+  let pushCount = 0;
+  for (const userId in tokens) {
+    const fcmToken = tokens[userId];
+    if (fcmToken) {
+      fcm.sendMessageNotification({
+        fcmToken,
+        senderId: 'admin',
+        senderName: 'Admin Broadcast',
+        messagePreview: message.slice(0, 60),
+        pendingCount: 1, // Just to show a badge
+      });
+      pushCount++;
+    }
+  }
+
+  res.json({ success: true, onlineReached: onlineUsers.size, offlineReached: pushCount });
 });
 
 // Serve admin panel HTML

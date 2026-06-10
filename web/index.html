@@ -112,6 +112,9 @@
           </svg>
         </div>
         <span class="sidebar-title">Hybrid Engine</span>
+        <button class="icon-btn" title="Toggle Theme" onclick="toggleTheme()">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
         <button class="icon-btn" title="Search users" onclick="focusSearch()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </button>
@@ -174,7 +177,7 @@
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div class="avatar sm" id="chat-avatar">?</div>
-          <div class="chat-header-info">
+          <div class="chat-header-info" style="cursor:pointer;" onclick="openPublicProfile()" title="View Profile">
             <div class="chat-header-name">
               <span id="chat-name">—</span>
               <span id="chat-role-badge"></span>
@@ -295,6 +298,36 @@
     <div style="display:flex;gap:10px;margin-top:8px;">
       <button class="btn-primary" style="flex:1" onclick="saveProfile()">Save Changes</button>
       <button class="btn-primary" style="flex:1;background:rgba(255,255,255,0.08);" onclick="closeModal('modal-profile')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Public Profile Modal -->
+<div class="modal-overlay" id="modal-public-profile">
+  <div class="modal-box" style="padding: 36px 24px;">
+    <img class="public-profile-avatar" id="pp-avatar" src="" style="display:none;" />
+    <div class="public-profile-avatar" id="pp-avatar-letter">?</div>
+    
+    <div class="public-profile-name" id="pp-name">—</div>
+    <div class="public-profile-id" id="pp-username">@—</div>
+    
+    <div style="text-align: center;">
+      <div class="public-profile-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--primary2)"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        <span style="color:var(--text); font-weight:700; font-family:monospace; font-size:14px;" id="pp-uid">0000000000</span>
+      </div>
+    </div>
+
+    <div class="public-profile-details">
+      <div class="pp-row">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>Bio:</span>
+      </div>
+      <div class="public-profile-bio" id="pp-bio">No bio provided.</div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:24px;">
+      <button class="btn-primary" style="flex:1;background:var(--bg3);color:var(--text)" onclick="closeModal('modal-public-profile')">Close</button>
     </div>
   </div>
 </div>

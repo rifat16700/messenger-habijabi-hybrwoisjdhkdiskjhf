@@ -369,7 +369,11 @@ export default function ChatScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
           <Ionicons name="chevron-back" size={26} color={t.text} />
         </TouchableOpacity>
-        <View style={s.headerInfo}>
+        <TouchableOpacity 
+          style={s.headerInfo} 
+          onPress={() => navigation.navigate('PublicProfile', { userId: targetUserId })}
+          activeOpacity={0.7}
+        >
           <View style={[s.headerAvatar, { backgroundColor: t.primary }]}>
             <Text style={s.headerAvatarText}>{(targetName || '?')[0].toUpperCase()}</Text>
           </View>
@@ -381,7 +385,7 @@ export default function ChatScreen({ route, navigation }) {
                 : 'Offline'}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
         <View style={s.callBtns}>
           <TouchableOpacity style={s.callBtn} onPress={() => startCall('audio')}>
             <Ionicons name="call-outline" size={22} color={t.text} />

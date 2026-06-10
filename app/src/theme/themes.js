@@ -4,10 +4,10 @@
 // ============================================================
 
 const baseColors = {
-  primary: '#6366F1',          // Indigo
-  primaryLight: '#818CF8',
-  primaryDark: '#4F46E5',
-  accent: '#06B6D4',           // Cyan
+  primary: '#800000',          // Red Maroon
+  primaryLight: '#B03030',
+  primaryDark: '#5C0000',      // Dark Maroon
+  accent: '#D4AF37',           // Gold/Accent
   success: '#10B981',
   warning: '#F59E0B',
   error: '#EF4444',
@@ -19,47 +19,47 @@ export const darkTheme = {
   mode: 'dark',
   colors: {
     ...baseColors,
-    // Backgrounds
-    background: '#0F0F13',
-    surface: '#1A1A24',
-    surfaceAlt: '#22222E',
-    card: '#1E1E2A',
-    cardBorder: '#2D2D3F',
+    // Backgrounds (5% maroon, 40% light, rest dark -> Dark Grayish Maroon)
+    background: '#1F1416',
+    surface: '#2C1A1D',
+    surfaceAlt: '#362226',
+    card: '#241618',
+    cardBorder: '#3D2529',
     // Bubbles
-    myBubble: '#4F46E5',
-    theirBubble: '#252533',
+    myBubble: '#5C0000', // Dark Maroon
+    theirBubble: '#362226',
     myBubbleText: '#FFFFFF',
-    theirBubbleText: '#E2E8F0',
+    theirBubbleText: '#F1F5F9',
     // Text
-    text: '#F1F5F9',
-    textSecondary: '#94A3B8',
-    textMuted: '#64748B',
+    text: '#F8ECEC',
+    textSecondary: '#B39D9D',
+    textMuted: '#806969',
     textOnPrimary: '#FFFFFF',
     // Input
-    inputBg: '#252533',
-    inputBorder: '#3D3D52',
-    inputText: '#F1F5F9',
-    placeholder: '#64748B',
+    inputBg: '#2C1A1D',
+    inputBorder: '#4A2D32',
+    inputText: '#F8ECEC',
+    placeholder: '#806969',
     // Header/Tab
-    headerBg: '#12121A',
-    headerBorder: '#2D2D3F',
-    tabBg: '#12121A',
-    tabActive: '#6366F1',
-    tabInactive: '#64748B',
+    headerBg: '#170E0F',
+    headerBorder: '#3D2529',
+    tabBg: '#170E0F',
+    tabActive: '#A32929',
+    tabInactive: '#806969',
     // Status bar
     statusBar: 'light-content',
     // Divider
-    divider: '#2D2D3F',
+    divider: '#3D2529',
     // Modal
-    modalBg: '#1A1A24',
-    overlay: 'rgba(0,0,0,0.7)',
+    modalBg: '#2C1A1D',
+    overlay: 'rgba(0,0,0,0.75)',
     // Badge
-    badgeBg: '#252533',
+    badgeBg: '#362226',
     // Shadow
     shadow: '#000000',
     // Call screen
-    callBg: '#0F0F13',
-    callControls: 'rgba(30,30,42,0.9)',
+    callBg: '#170E0F',
+    callControls: 'rgba(44,26,29,0.9)',
   },
   spacing: {
     xs: 4,
@@ -94,47 +94,47 @@ export const lightTheme = {
   mode: 'light',
   colors: {
     ...baseColors,
-    // Backgrounds
-    background: '#F8FAFC',
+    // Backgrounds (Thick boiled milk color)
+    background: '#FFF8ED',
     surface: '#FFFFFF',
-    surfaceAlt: '#F1F5F9',
+    surfaceAlt: '#FFF0D9',
     card: '#FFFFFF',
-    cardBorder: '#E2E8F0',
+    cardBorder: '#F2DFCB',
     // Bubbles
-    myBubble: '#6366F1',
+    myBubble: '#800000', // Red Maroon
     theirBubble: '#FFFFFF',
     myBubbleText: '#FFFFFF',
-    theirBubbleText: '#1E293B',
+    theirBubbleText: '#3B2929',
     // Text
-    text: '#1E293B',
-    textSecondary: '#64748B',
-    textMuted: '#94A3B8',
+    text: '#2B1A1A',
+    textSecondary: '#7A6262',
+    textMuted: '#A89494',
     textOnPrimary: '#FFFFFF',
     // Input
-    inputBg: '#F1F5F9',
-    inputBorder: '#E2E8F0',
-    inputText: '#1E293B',
-    placeholder: '#94A3B8',
+    inputBg: '#FFFFFF',
+    inputBorder: '#E6D3C1',
+    inputText: '#2B1A1A',
+    placeholder: '#A89494',
     // Header/Tab
-    headerBg: '#FFFFFF',
-    headerBorder: '#E2E8F0',
-    tabBg: '#FFFFFF',
-    tabActive: '#6366F1',
-    tabInactive: '#94A3B8',
+    headerBg: '#FFF8ED',
+    headerBorder: '#F2DFCB',
+    tabBg: '#FFF8ED',
+    tabActive: '#800000',
+    tabInactive: '#A89494',
     // Status bar
     statusBar: 'dark-content',
     // Divider
-    divider: '#E2E8F0',
+    divider: '#F2DFCB',
     // Modal
     modalBg: '#FFFFFF',
-    overlay: 'rgba(0,0,0,0.5)',
+    overlay: 'rgba(43,26,26,0.4)',
     // Badge
-    badgeBg: '#F1F5F9',
+    badgeBg: '#FFF0D9',
     // Shadow
-    shadow: '#000000',
+    shadow: '#3D2525',
     // Call screen
-    callBg: '#1E293B',
-    callControls: 'rgba(255,255,255,0.1)',
+    callBg: '#2B1A1A',
+    callControls: 'rgba(255,248,237,0.1)',
   },
   spacing: {
     xs: 4,

@@ -473,6 +473,43 @@ function closeChat() {
   }
 }
 
+async function openPublicProfile() {
+  if (!state.activeChat) return;
+  const user = state.activeChat;
+
+  // Set basics first
+  document.getElementById('pp-name').textContent = user.displayName;
+  document.getElementById('pp-username').textContent = `@${user.username}`;
+  document.getElementById('pp-uid').textContent = user.id;
+  document.getElementById('pp-avatar-letter').textContent = initials(user.displayName);
+  document.getElementById('pp-avatar').style.display = 'none';
+  document.getElementById('pp-avatar-letter').style.display = 'flex';
+  document.getElementById('pp-bio').textContent = 'Loading...';
+
+  // Show modal immediately
+  document.getElementById('modal-public-profile').classList.add('show');
+
+  // Fetch full profile from GitHub
+  try {
+    const r = await fetch(githubProfileUrl(user.id), { cache: 'no-cache' });
+    if (r.ok) {
+      const profile = await r.json();
+      document.getElementById('pp-bio').textContent = profile.bio || "No bio provided.";
+      if (profile.avatarUrl) {
+        document.getElementById('pp-avatar').src = profile.avatarUrl;
+        document.getElementById('pp-avatar').style.display = 'flex';
+        document.getElementById('pp-avatar-letter').style.display = 'none';
+      } else if (profile.avatarColor) {
+        document.getElementById('pp-avatar-letter').style.background = profile.avatarColor;
+      }
+    } else {
+      document.getElementById('pp-bio').textContent = "This user hasn't added a bio yet.";
+    }
+  } catch (e) {
+    document.getElementById('pp-bio').textContent = "Couldn't load bio.";
+  }
+}
+
 function updateChatStatus(userId) {
   const isOnline = state.onlineUserIds.has(userId || state.activeChat?.id);
   const el = document.getElementById('chat-status');
@@ -1136,12 +1173,31 @@ function esc(str) {
     .replace(/"/g,'&quot;');
 }
 
-function formatTime(ts) {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch { return ''; }
+function formatTime(isoString) {
+  const d = new Date(isoString);
+  let h = d.getHours(), m = d.getMinutes();
+  h = h < 10 ? '0'+h : h;
+  m = m < 10 ? '0'+m : m;
+  return `${h}:${m}`;
 }
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  if (current === 'light') {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('he_theme', 'dark');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('he_theme', 'light');
+  }
+}
+
+// Load saved theme on boot
+window.addEventListener('DOMContentLoaded', () => {
+  if (localStorage.getItem('he_theme') === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+});
 
 function formatDuration(seconds) {
   if (!seconds) return '00:00';

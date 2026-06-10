@@ -19,6 +19,8 @@ import AuthScreen from './src/screens/AuthScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import PublicProfileScreen from './src/screens/PublicProfileScreen';
+import UsersScreen from './src/screens/UsersScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import CallScreen from './src/screens/CallScreen';
 import IncomingCallScreen from './src/screens/IncomingCallScreen';
