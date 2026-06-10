@@ -158,14 +158,24 @@ io.on('connection', (socket) => {
     if (pending.length > 0) {
       for (const { entry, data: msgData, expired } of pending) {
         if (expired || !msgData) continue;
-        socket.emit('offline_message_delivered', {
-          entryId: entry.id,
-          senderId: entry.senderId,
-          senderName: entry.senderName,
-          type: entry.type,
-          originalTimestamp: entry.originalTimestamp,
-          data: msgData,
-        });
+        if (entry.type === 'file') {
+          socket.emit('offline_file_delivered', {
+            entryId: entry.id,
+            senderId: entry.senderId,
+            senderName: entry.senderName,
+            originalTimestamp: entry.originalTimestamp,
+            data: msgData,
+          });
+        } else {
+          socket.emit('offline_message_delivered', {
+            entryId: entry.id,
+            senderId: entry.senderId,
+            senderName: entry.senderName,
+            type: entry.type,
+            originalTimestamp: entry.originalTimestamp,
+            data: msgData,
+          });
+        }
       }
       console.log(`[Socket] Delivered ${pending.length} offline message(s) to ${userId}`);
     }
@@ -251,30 +261,80 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── SEND FILE (offline buffer path) ──
-  socket.on('send_file_offline', async (data) => {
-    const { to, fileBase64, filename, mimetype, originalTimestamp } = data;
+  // ── FILE CHUNK HANDLER (chunked file transfer) ──
+  // Online: chunk গুলো সরাসরি receiver-এর কাছে forward করা
+  // Offline: সব chunk এসে গেলে disk-এ save করা
+  const _serverChunkBuffers = {}; // transferId → { chunks, received, meta }
+
+  socket.on('file_chunk', async (data) => {
+    const { to, transferId, chunkIndex, totalChunks, base64Chunk,
+      filename, mimetype, fileSize, senderName, originalTimestamp, isLastChunk } = data;
+
     const fromUser = onlineUsers.get(socket.userId);
     if (!fromUser) return;
 
-    const fileBuffer = Buffer.from(fileBase64, 'base64');
-    const result = await offlineBuffer.saveOfflineFile(
-      to,
-      fileBuffer,
-      filename,
-      mimetype,
-      socket.userId,
-      fromUser.displayName || fromUser.username,
-      originalTimestamp || new Date().toISOString()
-    );
+    const targetSocketId = getSocketId(to);
 
-    socket.emit('file_buffered', {
-      to,
-      entryId: result.entryId,
-      filename,
-      originalTimestamp: originalTimestamp || new Date().toISOString(),
-      status: result.success ? 'buffered' : 'failed',
-    });
+    if (targetSocketId) {
+      // Receiver online — forward chunk সরাসরি
+      io.to(targetSocketId).emit('file_chunk', {
+        ...data,
+        senderId: socket.userId,
+        senderName: fromUser.displayName || fromUser.username,
+      });
+      return;
+    }
+
+    // Receiver offline — chunk জমা করো, শেষে disk-এ save করো
+    if (!_serverChunkBuffers[transferId]) {
+      _serverChunkBuffers[transferId] = {
+        chunks: new Array(totalChunks),
+        received: 0,
+        meta: { to, filename, mimetype, fileSize, originalTimestamp },
+      };
+    }
+
+    const buf = _serverChunkBuffers[transferId];
+    buf.chunks[chunkIndex] = base64Chunk;
+    buf.received++;
+
+    if (buf.received === totalChunks) {
+      // সব chunk এসে গেছে — combine করে disk-এ save করো
+      const fullBase64 = buf.chunks.join('');
+      const fileBuffer = Buffer.from(fullBase64, 'base64');
+      delete _serverChunkBuffers[transferId];
+
+      const result = await offlineBuffer.saveOfflineFile(
+        to,
+        fileBuffer,
+        filename,
+        mimetype,
+        socket.userId,
+        fromUser.displayName || fromUser.username,
+        originalTimestamp || new Date().toISOString()
+      );
+
+      // Sender-কে জানাও যে buffered হয়েছে
+      socket.emit('file_buffered', {
+        to, filename,
+        entryId: result.entryId,
+        status: result.success ? 'buffered' : 'failed',
+      });
+
+      // FCM push পাঠাও
+      const offlineFcmToken = getFcmToken(to);
+      if (offlineFcmToken) {
+        fcm.sendMessageNotification({
+          fcmToken: offlineFcmToken,
+          senderId: socket.userId,
+          senderName: fromUser.displayName || fromUser.username,
+          messagePreview: `Sent a file: ${filename}`,
+          pendingCount: offlineBuffer.getPendingCount(to),
+        });
+      }
+
+      console.log(`[Socket] File "${filename}" buffered to disk for offline user ${to}`);
+    }
   });
 
   // ──────────────────────────────────────────────

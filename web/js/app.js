@@ -459,55 +459,159 @@ function sendMessage() {
 }
 
 // ============================================================
-//  FILE TRANSFER (Zero-Trace)
+//  FILE TRANSFER — Direct via Socket (No external service)
+//  Chunked transfer: কোনো size limit নেই, শুধু device/HF disk limit
 // ============================================================
+
+const FILE_CHUNK_SIZE = 256 * 1024; // 256 KB per chunk
+
 async function handleFileUpload(event) {
   const file = event.target.files[0];
   if (!file || !state.activeChat) return;
-  event.target.value = ''; // reset
+  event.target.value = '';
 
-  const isOnline = state.onlineUserIds.has(state.activeChat.id);
-  toast(`Uploading ${file.name}...`, 'info');
+  if (!state.socket?.connected) {
+    toast('Not connected to server', 'error');
+    return;
+  }
+
+  const isReceiverOnline = state.onlineUserIds.has(state.activeChat.id);
+  const totalChunks = Math.ceil(file.size / FILE_CHUNK_SIZE);
+  const transferId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const ts = new Date().toISOString();
+
+  toast(`Sending ${file.name} (${formatFileSize(file.size)})…`, 'info');
 
   try {
-    // We use file.io for zero-trace burn-after-reading file transfer.
-    // The file is automatically deleted from their server once downloaded.
-    const link = await uploadToFileIo(file);
-    
-    // Construct message
-    const text = `📎 [Attachment: ${file.name}](${link})`;
-    const msg = { text, from: state.user.id, ts: new Date().toISOString() };
-    
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8 = new Uint8Array(arrayBuffer);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * FILE_CHUNK_SIZE;
+      const end   = Math.min(start + FILE_CHUNK_SIZE, file.size);
+      const chunk = uint8.slice(start, end);
+      const base64Chunk = btoa(String.fromCharCode(...chunk));
+
+      state.socket.emit('file_chunk', {
+        to: state.activeChat.id,
+        transferId,
+        chunkIndex: i,
+        totalChunks,
+        base64Chunk,
+        filename: file.name,
+        mimetype: file.type || 'application/octet-stream',
+        fileSize: file.size,
+        senderId: state.user.id,
+        senderName: state.user.displayName,
+        originalTimestamp: ts,
+        isLastChunk: i === totalChunks - 1,
+      });
+
+      // Small delay to avoid flooding socket
+      if (i < totalChunks - 1) await sleep(20);
+    }
+
+    // Show in our own chat
+    const previewText = isImage(file.type)
+      ? `[Image: ${file.name}]`
+      : `[File: ${file.name} · ${formatFileSize(file.size)}]`;
+
+    const msg = {
+      text: previewText,
+      from: state.user.id,
+      ts,
+      fileTransfer: true,
+      filename: file.name,
+      mimetype: file.type,
+      fileSize: file.size,
+    };
     if (!state.messages[state.activeChat.id]) state.messages[state.activeChat.id] = [];
     state.messages[state.activeChat.id].push(msg);
     saveMessagesLocally();
     renderMessages();
 
-    // Send the link to the peer
-    if (state.socket) {
-      state.socket.emit('send_message', {
-        to: state.activeChat.id,
-        message: { text, type: 'text' },
-        originalTimestamp: msg.ts,
-      });
-    }
-    toast('File sent successfully!', 'success');
+    toast(`${file.name} sent!`, 'success');
   } catch (e) {
-    toast('File upload failed: ' + e.message, 'error');
+    toast('File send failed: ' + e.message, 'error');
+    console.error('[FileTransfer]', e);
   }
 }
 
-async function uploadToFileIo(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  // Optional parameters removed because file.io free tier might block them.
-  // It defaults to 1 download auto-delete anyway!
-  
-  const res = await fetch('https://file.io/?expires=1d', { method: 'POST', body: formData });
-  const data = await res.json();
-  if (!data.success) throw new Error(data.message || 'Upload failed');
-  return data.link;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
+function isImage(mimetype) {
+  return mimetype && mimetype.startsWith('image/');
+}
+
+// Incoming file chunks (receiver side)
+const _fileChunkBuffers = {}; // transferId → { chunks, meta }
+
+function handleIncomingFileChunk({ transferId, chunkIndex, totalChunks, base64Chunk,
+  filename, mimetype, fileSize, senderId, senderName, originalTimestamp }) {
+
+  if (!_fileChunkBuffers[transferId]) {
+    _fileChunkBuffers[transferId] = {
+      chunks: new Array(totalChunks),
+      meta: { filename, mimetype, fileSize, senderId, senderName, originalTimestamp },
+      received: 0,
+    };
+  }
+
+  const buf = _fileChunkBuffers[transferId];
+  buf.chunks[chunkIndex] = base64Chunk;
+  buf.received++;
+
+  if (buf.received === totalChunks) {
+    // All chunks received — combine and offer download
+    const fullBase64 = buf.chunks.join('');
+    delete _fileChunkBuffers[transferId];
+    deliverReceivedFile(fullBase64, buf.meta, senderId);
+  }
+}
+
+function deliverReceivedFile(base64Data, { filename, mimetype, fileSize, senderId, senderName, originalTimestamp }) {
+  // Save to chat history
+  if (!state.messages[senderId]) state.messages[senderId] = [];
+  const msg = {
+    text: isImage(mimetype) ? `[Image: ${filename}]` : `[File: ${filename} · ${formatFileSize(fileSize)}]`,
+    from: senderId,
+    ts: originalTimestamp,
+    fileTransfer: true,
+    filename,
+    mimetype,
+    fileSize,
+    base64Data, // kept in memory for download
+  };
+  state.messages[senderId].push(msg);
+  saveMessagesLocally();
+
+  if (state.activeChat?.id === senderId) {
+    renderMessages();
+    if (document.hidden) showSystemNotification(`File from ${senderName}`, filename);
+  } else {
+    toast(`File from ${getUserName(senderId)}: ${filename}`, 'info');
+    showSystemNotification(`File from ${senderName}`, filename);
+  }
+
+  // Auto-trigger download for the received file
+  downloadBase64File(base64Data, filename, mimetype);
+}
+
+function downloadBase64File(base64, filename, mimetype) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimetype });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 
 // ============================================================
 //  SOCKET.IO
@@ -573,6 +677,25 @@ function connectSocket() {
     state.messages[senderId].push({ text: data.text, from: senderId, ts: data.originalTimestamp });
     saveMessagesLocally();
     if (state.activeChat?.id === senderId) renderMessages();
+  });
+
+  // ── INCOMING FILE CHUNK (online P2P file transfer) ──
+  state.socket.on('file_chunk', (chunkData) => {
+    handleIncomingFileChunk(chunkData);
+  });
+
+  // ── OFFLINE FILE DELIVERED (receiver came online, server sends buffered file) ──
+  state.socket.on('offline_file_delivered', ({ senderId, senderName, data, originalTimestamp }) => {
+    if (data?.buffer) {
+      deliverReceivedFile(data.buffer, {
+        filename: data.filename,
+        mimetype: data.mimetype,
+        fileSize: data.sizeBytes || 0,
+        senderId,
+        senderName,
+        originalTimestamp,
+      });
+    }
   });
 
   // ── INCOMING CALL ──
