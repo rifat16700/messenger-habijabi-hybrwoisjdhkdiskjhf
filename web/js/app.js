@@ -8,7 +8,8 @@ const GITHUB_OWNER  = 'rifat16700';
 const GITHUB_REPO   = 'messenger-habijabi-hybrwoisjdhkdiskjhf';
 const GITHUB_BRANCH = 'main';
 function githubProfileUrl(userId) {
-  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/profiles/${userId}.json`;
+  // Matches the server path: database/users/{uid}.json
+  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/database/users/${userId}.json`;
 }
 
 // ── 10-Digit UID Generator (no premium/rare patterns) ──
@@ -32,11 +33,6 @@ function generateUID() {
   } while (isPremiumPattern(uid));
   return uid;
 }
-
-// ── Supabase Config ──
-const SUPABASE_URL = 'https://spiotvupwogvtxlziezj.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwaW90dnVwd29ndnR4bHppZXpqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjk2MjcsImV4cCI6MjA5NjMwNTYyN30.OAPmD8UfdrU7pjv_KrNQymtjdwb7oK3f1cACQ32kVQc';
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ── State ──
 const state = {
@@ -155,19 +151,15 @@ async function handleLogin(e) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    const { data, error } = await supabaseClient
-      .from('app_users')
-      .select('*')
-      .eq('username', username.toLowerCase())
-      .single();
+    const res = await fetch(`${SERVER_URL}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Login failed');
 
-    if (error || !data) throw new Error('User not found');
-    if (data.password !== password) throw new Error('Invalid password');
-
-    // Generate a simple token for local state
-    const token = btoa(data.id + Date.now());
-    const user = { id: data.id, username: data.username, displayName: data.display_name };
-    onAuthSuccess(token, user);
+    onAuthSuccess(data.token, data.user);
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -188,31 +180,20 @@ async function handleRegister(e) {
   btn.innerHTML = '<span class="spinner"></span>';
 
   try {
-    // Check if username exists
-    const { data: existing } = await supabaseClient
-      .from('app_users')
-      .select('id')
-      .eq('username', username.toLowerCase())
-      .single();
-      
-    if (existing) {
+    const res = await fetch(`${SERVER_URL}/api/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, displayName, password })
+    });
+    const data = await res.json();
+
+    if (res.status === 409) {
       document.getElementById('err-username').textContent = 'Username already taken';
       return;
     }
+    if (!res.ok) throw new Error(data.error || 'Registration failed');
 
-    const newUser = {
-      id: generateUID(),   // 10-digit numeric UID
-      username: username.toLowerCase(),
-      display_name: displayName,
-      password: password,
-    };
-
-    const { error } = await supabaseClient.from('app_users').insert([newUser]);
-    if (error) throw new Error(error.message);
-
-    const token = btoa(newUser.id + Date.now());
-    const user = { id: newUser.id, username: newUser.username, displayName: newUser.display_name };
-    onAuthSuccess(token, user);
+    onAuthSuccess(data.token, data.user);
   } catch (err) {
     toast(err.message, 'error');
   } finally {
@@ -235,17 +216,24 @@ function onAuthSuccess(token, user) {
   initApp();
 }
 
-// Fetch our own profile from GitHub (role, bio, etc.)
+// Fetch our own profile from GitHub (role, bio, phone, email, etc.)
 async function fetchMyProfile() {
   try {
     const r = await fetch(githubProfileUrl(state.user.id), { cache: 'no-cache' });
     if (!r.ok) return;
-    const profile = await r.json();
-    state.user.role = profile.role || 'user';
-    state.user.bio  = profile.bio  || '';
-    state.user.avatarColor = profile.avatarColor || '';
+    const p = await r.json();
+    // Merge all profile fields into state
+    Object.assign(state.user, {
+      role:        p.role        || state.user.role || 'user',
+      bio:         p.bio         || '',
+      phone:       p.phone       || '',
+      email:       p.email       || '',
+      location:    p.location    || '',
+      website:     p.website     || '',
+      avatarColor: p.avatarColor || '',
+      avatarUrl:   p.avatarUrl   || '',
+    });
     localStorage.setItem('he_user', JSON.stringify(state.user));
-    // Update sidebar avatar indicator for moderator
     updateMyRoleUI();
   } catch (e) { /* GitHub not yet available */ }
 }
@@ -316,11 +304,13 @@ async function initFirebase() {
     if (token) {
       console.log('[FCM] Token acquired:', token.slice(0, 15) + '...');
       state.fcmToken = token;
-      // Save FCM token to Supabase
+      // Save FCM token via server API (no Supabase)
       if (state.user?.id) {
-        supabaseClient.from('app_users').update({ fcm_token: token }).eq('id', state.user.id).then(({ error }) => {
-          if (error) console.error('Failed to save FCM token to Supabase:', error);
-        });
+        fetch(`${SERVER_URL}/api/profile`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-user-id': state.user.id },
+          body: JSON.stringify({ fcmToken: token })
+        }).catch(() => {});
       }
     }
 
@@ -354,26 +344,24 @@ async function saveMessagesLocally() {
 // ============================================================
 async function fetchUsers() {
   try {
-    const { data, error } = await supabaseClient
-      .from('app_users')
-      .select('id, username, display_name');
-      
-    if (error) throw error;
-    
-    state.allUsers = (data || [])
+    const res = await fetch(`${SERVER_URL}/api/users`);
+    if (!res.ok) throw new Error('Failed to load users');
+    const data = await res.json();
+
+    state.allUsers = (data.users || [])
       .filter(u => u.id !== state.user.id)
-      .map(u => ({ id: u.id, username: u.username, displayName: u.display_name }));
-      
-    // Async load roles from GitHub
+      .map(u => ({
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        role: u.role || 'user',
+        bio: u.bio || '',
+        avatarColor: u.avatarColor || ''
+      }));
+
+    // Pre-fill roles from the already-included data
     state.allUsers.forEach(u => {
-      fetch(githubProfileUrl(u.id), { cache: 'no-cache' })
-        .then(r => r.json())
-        .then(profile => {
-          state.userRoles[u.id] = profile.role || 'user';
-          if (state.activeChat?.id === u.id) updateChatRoleUI(u.id);
-          renderUserList();
-        })
-        .catch(() => {});
+      if (u.role) state.userRoles[u.id] = u.role;
     });
 
     renderUserList();
@@ -968,9 +956,9 @@ async function startCall(callType) {
     const offer = await state.pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: callType === 'video' });
     await state.pc.setLocalDescription(offer);
 
-    // Fetch target FCM token from Supabase for offline push notification
-    const { data: peerData } = await supabaseClient.from('app_users').select('fcm_token').eq('id', state.callPeerId).single();
-    const targetFcmToken = peerData?.fcm_token || null;
+    // FCM token is carried in the online registry from socket registration
+    // Server will look up the token when forwarding the call offer
+    const targetFcmToken = null; // Server handles FCM push for offline calls
 
     state.socket.emit('offer', { to: state.callPeerId, offer, callType, targetFcmToken });
     document.getElementById('call-status-text').textContent = 'Ringing…';
