@@ -672,11 +672,26 @@ function connectSocket() {
     }
   });
 
-  state.socket.on('offline_message_delivered', ({ senderId, data }) => {
+  state.socket.on('offline_message_delivered', ({ senderId, senderName, originalTimestamp, data }) => {
+    if (!data?.text) return;
     if (!state.messages[senderId]) state.messages[senderId] = [];
-    state.messages[senderId].push({ text: data.text, from: senderId, ts: data.originalTimestamp });
-    saveMessagesLocally();
-    if (state.activeChat?.id === senderId) renderMessages();
+
+    // Avoid duplicate (if message already locally stored)
+    const ts = originalTimestamp || new Date().toISOString();
+    const alreadyExists = state.messages[senderId].some(m => m.ts === ts && m.from === senderId);
+    if (!alreadyExists) {
+      state.messages[senderId].push({ text: data.text, from: senderId, ts });
+      saveMessagesLocally();
+
+      if (state.activeChat?.id === senderId) {
+        renderMessages();
+      } else {
+        // Notify user that a buffered message just arrived
+        toast(`📬 Message from ${senderName || getUserName(senderId)}`, 'info');
+        showSystemNotification(`New message`, `From ${senderName || getUserName(senderId)}: ${data.text.slice(0,60)}`);
+        renderUserList(); // unread badge update
+      }
+    }
   });
 
   // ── INCOMING FILE CHUNK (online P2P file transfer) ──
