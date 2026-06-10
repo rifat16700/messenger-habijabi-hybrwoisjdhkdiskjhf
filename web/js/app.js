@@ -1140,6 +1140,18 @@ function showSettings() {
   document.getElementById('settings-my-name').textContent      = state.user.displayName || '';
   document.getElementById('settings-my-username').textContent  = `@${state.user.username || ''}`;
   document.getElementById('settings-my-uid').textContent       = state.user.id || '';
+  
+  // Account section
+  document.getElementById('account-email-display').textContent = state.user.email || state.user.username || '—';
+  document.getElementById('account-role-display').textContent  = state.user.role || 'user';
+
+  // Sync theme toggle with current theme
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const toggleCheck = document.getElementById('theme-toggle-check');
+  if (toggleCheck) toggleCheck.checked = isLight;
+  const themeLabel = document.getElementById('theme-label');
+  if (themeLabel) themeLabel.textContent = isLight ? 'Light Mode' : 'Dark Mode';
+
   showView('settings');
 }
 
@@ -1234,15 +1246,21 @@ function formatTime(isoString) {
   return `${h}:${m}`;
 }
 
-function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  if (current === 'light') {
-    document.documentElement.removeAttribute('data-theme');
-    localStorage.setItem('he_theme', 'dark');
-  } else {
+function toggleTheme(isLight) {
+  // Can be called from checkbox (bool) or button (no args)
+  if (typeof isLight !== 'boolean') {
+    isLight = document.documentElement.getAttribute('data-theme') !== 'light';
+  }
+  if (isLight) {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('he_theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('he_theme', 'dark');
   }
+  // Update label in settings if open
+  const themeLabel = document.getElementById('theme-label');
+  if (themeLabel) themeLabel.textContent = isLight ? 'Light Mode' : 'Dark Mode';
 }
 
 // Load saved theme on boot
