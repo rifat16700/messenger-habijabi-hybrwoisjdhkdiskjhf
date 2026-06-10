@@ -702,15 +702,28 @@ app.get('/api/users/:id', (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
-// Update profile (requires token)
+// Update profile (accepts x-user-id for client-side supabase auth)
 app.put('/api/profile', (req, res) => {
-  const auth = req.headers.authorization?.split(' ')[1];
-  const decoded = verifyToken(auth || '');
-  if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
+  const userId = req.headers['x-user-id'];
+  if (!userId) return res.status(401).json({ error: 'Unauthorized: missing x-user-id' });
+
   const users = loadUsers();
-  const idx = users.findIndex(u => u.id === decoded.userId);
-  if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  const allowedFields = ['displayName', 'bio', 'avatarUrl', 'coverUrl', 'status', 'location', 'website'];
+  let idx = users.findIndex(u => u.id === userId);
+  
+  // If user registered via Supabase directly, they might not be in users.json yet
+  if (idx === -1) {
+    const newUser = {
+      id: userId,
+      username: req.body.username || 'user',
+      displayName: req.body.displayName || 'User',
+      role: 'user',
+      createdAt: new Date().toISOString()
+    };
+    users.push(newUser);
+    idx = users.length - 1;
+  }
+
+  const allowedFields = ['displayName', 'bio', 'avatarUrl', 'avatarColor', 'coverUrl', 'status', 'location', 'website', 'email', 'phone'];
   allowedFields.forEach(field => {
     if (req.body[field] !== undefined) {
       if (typeof req.body[field] === 'string') {

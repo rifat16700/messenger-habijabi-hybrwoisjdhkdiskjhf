@@ -118,7 +118,7 @@
         <button class="icon-btn" title="Search users" onclick="focusSearch()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </button>
-        <button class="icon-btn" title="My Profile" onclick="openProfileModal()">
+        <button class="icon-btn" title="My Profile / Settings" onclick="showSettings()">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
         </button>
       </div>
@@ -249,6 +249,91 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════════════
+       SETTINGS / PROFILE VIEW
+  ═══════════════════════════════════════ -->
+  <div id="view-settings" class="view">
+    <div style="max-width: 600px; margin: 0 auto; width: 100%; height: 100%; display: flex; flex-direction: column;">
+      
+      <!-- Settings Header -->
+      <div style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 15px;">
+        <button class="icon-btn" onclick="hideSettings()" title="Back">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+        </button>
+        <h2 style="margin: 0; font-size: 20px;">Settings</h2>
+      </div>
+
+      <!-- Settings Content -->
+      <div style="flex: 1; overflow-y: auto; padding: 30px 20px;">
+        <div style="display: flex; flex-direction: column; align-items: center; margin-bottom: 30px;">
+          <div class="avatar-picker" id="profile-avatar-preview" style="width: 100px; height: 100px; font-size: 40px; margin-bottom: 15px;">?</div>
+          <div style="font-weight: 600; font-size: 22px; color: var(--text);" id="settings-my-name">User Name</div>
+          <div style="color: var(--text2); font-size: 15px;" id="settings-my-username">@username</div>
+          <div style="color: var(--primary); font-family: monospace; font-size: 14px; margin-top: 5px; background: rgba(255,255,255,0.05); padding: 4px 10px; border-radius: 6px;" id="settings-my-uid">0000000000</div>
+        </div>
+
+        <div class="field">
+          <label>Display Name</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            </span>
+            <input type="text" id="profile-displayname" placeholder="Your display name" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Bio</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </span>
+            <input type="text" id="profile-bio" placeholder="Write something about yourself..." maxlength="200" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Phone Number</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.5a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.5 16l.42.92z"/></svg>
+            </span>
+            <input type="text" id="profile-phone" placeholder="+1234567890" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Email Address</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            </span>
+            <input type="email" id="profile-email" placeholder="you@example.com" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Location</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            </span>
+            <input type="text" id="profile-location" placeholder="City, Country" />
+          </div>
+        </div>
+        <div class="field">
+          <label>Website</label>
+          <div class="input-wrap">
+            <span class="icon">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+            </span>
+            <input type="url" id="profile-website" placeholder="https://example.com" />
+          </div>
+        </div>
+        
+        <div style="display:flex;gap:10px;margin-top:20px;margin-bottom:40px;">
+          <button class="btn-primary" style="flex:1; font-size:16px; padding:12px;" id="btn-save-profile" onclick="saveProfile()">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /#app -->
 
 <!-- ═══════════════════════════════════════
@@ -268,36 +353,6 @@
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.5a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.5 16l.42.92z"/></svg>
         <span>Accept</span>
       </button>
-    </div>
-  </div>
-</div>
-
-<!-- Profile Modal -->
-<div class="modal-overlay" id="modal-profile">
-  <div class="modal-box">
-    <div class="modal-title">My Profile</div>
-    <div class="avatar-picker" id="profile-avatar-preview">?</div>
-    <div class="field">
-      <label>Display Name</label>
-      <div class="input-wrap">
-        <span class="icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        </span>
-        <input type="text" id="profile-displayname" placeholder="Your display name" />
-      </div>
-    </div>
-    <div class="field">
-      <label>Bio</label>
-      <div class="input-wrap">
-        <span class="icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-        </span>
-        <input type="text" id="profile-bio" placeholder="Write something about yourself..." maxlength="200" />
-      </div>
-    </div>
-    <div style="display:flex;gap:10px;margin-top:8px;">
-      <button class="btn-primary" style="flex:1" onclick="saveProfile()">Save Changes</button>
-      <button class="btn-primary" style="flex:1;background:rgba(255,255,255,0.08);" onclick="closeModal('modal-profile')">Cancel</button>
     </div>
   </div>
 </div>
@@ -324,6 +379,23 @@
         <span>Bio:</span>
       </div>
       <div class="public-profile-bio" id="pp-bio">No bio provided.</div>
+
+      <div class="pp-row" style="margin-top: 15px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.59 1.22h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.5a16 16 0 0 0 6 6l.86-.86a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.5 16l.42.92z"/></svg>
+        <span id="pp-phone" style="font-size: 14px; font-weight: 500;">-</span>
+      </div>
+      <div class="pp-row" style="margin-top: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        <span id="pp-email" style="font-size: 14px; font-weight: 500;">-</span>
+      </div>
+      <div class="pp-row" style="margin-top: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        <span id="pp-location" style="font-size: 14px; font-weight: 500;">-</span>
+      </div>
+      <div class="pp-row" style="margin-top: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        <span id="pp-website" style="font-size: 14px; font-weight: 500;">-</span>
+      </div>
     </div>
 
     <div style="display:flex;gap:10px;margin-top:24px;">

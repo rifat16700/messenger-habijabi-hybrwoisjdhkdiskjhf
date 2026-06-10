@@ -11,6 +11,28 @@ function githubProfileUrl(userId) {
   return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/profiles/${userId}.json`;
 }
 
+// ── 10-Digit UID Generator (no premium/rare patterns) ──
+function isPremiumPattern(uid) {
+  const str = String(uid);
+  if (str.length !== 10) return true;
+  if (/^(\d)\1{9}$/.test(str)) return true; // all same
+  if ('0123456789'.includes(str) || '9876543210'.includes(str)) return true; // sequential
+  if (str.substring(0,5) === str.substring(5,10)) return true; // repeating half
+  if (/0{5,}$/.test(str)) return true; // trailing zeros
+  const rev = str.split('').reverse().join('');
+  if (str === rev) return true; // palindrome
+  return false;
+}
+function generateUID() {
+  let uid;
+  do {
+    const first = Math.floor(Math.random() * 9) + 1;
+    const rest  = Array.from({length: 9}, () => Math.floor(Math.random() * 10)).join('');
+    uid = `${first}${rest}`;
+  } while (isPremiumPattern(uid));
+  return uid;
+}
+
 // ── Supabase Config ──
 const SUPABASE_URL = 'https://spiotvupwogvtxlziezj.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNwaW90dnVwd29ndnR4bHppZXpqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3Mjk2MjcsImV4cCI6MjA5NjMwNTYyN30.OAPmD8UfdrU7pjv_KrNQymtjdwb7oK3f1cACQ32kVQc';
@@ -179,10 +201,10 @@ async function handleRegister(e) {
     }
 
     const newUser = {
-      id: crypto.randomUUID(),
+      id: generateUID(),   // 10-digit numeric UID
       username: username.toLowerCase(),
       display_name: displayName,
-      password: password, // In a real app, this should be hashed. As requested, storing as text.
+      password: password,
     };
 
     const { error } = await supabaseClient.from('app_users').insert([newUser]);
@@ -477,36 +499,47 @@ async function openPublicProfile() {
   if (!state.activeChat) return;
   const user = state.activeChat;
 
-  // Set basics first
-  document.getElementById('pp-name').textContent = user.displayName;
+  // Set basics immediately
+  document.getElementById('pp-name').textContent     = user.displayName;
   document.getElementById('pp-username').textContent = `@${user.username}`;
-  document.getElementById('pp-uid').textContent = user.id;
+  document.getElementById('pp-uid').textContent      = user.id;
   document.getElementById('pp-avatar-letter').textContent = initials(user.displayName);
-  document.getElementById('pp-avatar').style.display = 'none';
+  document.getElementById('pp-avatar').style.display       = 'none';
   document.getElementById('pp-avatar-letter').style.display = 'flex';
-  document.getElementById('pp-bio').textContent = 'Loading...';
+  document.getElementById('pp-bio').textContent      = 'Loading…';
+  document.getElementById('pp-phone').textContent    = '-';
+  document.getElementById('pp-email').textContent    = '-';
+  document.getElementById('pp-location').textContent = '-';
+  document.getElementById('pp-website').textContent  = '-';
 
-  // Show modal immediately
   document.getElementById('modal-public-profile').classList.add('show');
 
   // Fetch full profile from GitHub
   try {
     const r = await fetch(githubProfileUrl(user.id), { cache: 'no-cache' });
     if (r.ok) {
-      const profile = await r.json();
-      document.getElementById('pp-bio').textContent = profile.bio || "No bio provided.";
-      if (profile.avatarUrl) {
-        document.getElementById('pp-avatar').src = profile.avatarUrl;
+      const p = await r.json();
+      document.getElementById('pp-bio').textContent      = p.bio || 'No bio provided.';
+      document.getElementById('pp-phone').textContent    = p.phone || '-';
+      document.getElementById('pp-email').textContent    = p.email || '-';
+      document.getElementById('pp-location').textContent = p.location || '-';
+      if (p.website) {
+        document.getElementById('pp-website').innerHTML = `<a href="${esc(p.website)}" target="_blank" style="color:var(--primary)">${esc(p.website)}</a>`;
+      } else {
+        document.getElementById('pp-website').textContent = '-';
+      }
+      if (p.avatarUrl) {
+        document.getElementById('pp-avatar').src = p.avatarUrl;
         document.getElementById('pp-avatar').style.display = 'flex';
         document.getElementById('pp-avatar-letter').style.display = 'none';
-      } else if (profile.avatarColor) {
-        document.getElementById('pp-avatar-letter').style.background = profile.avatarColor;
+      } else if (p.avatarColor) {
+        document.getElementById('pp-avatar-letter').style.background = p.avatarColor;
       }
     } else {
-      document.getElementById('pp-bio').textContent = "This user hasn't added a bio yet.";
+      document.getElementById('pp-bio').textContent = 'No profile info yet.';
     }
   } catch (e) {
-    document.getElementById('pp-bio').textContent = "Couldn't load bio.";
+    document.getElementById('pp-bio').textContent = 'Could not load profile.';
   }
 }
 
@@ -1093,50 +1126,70 @@ function startCallTimer() {
 }
 
 // ============================================================
-//  PROFILE
+//  PROFILE / SETTINGS PAGE
 // ============================================================
-function openProfileModal() {
+function showSettings() {
+  // Populate fields from state
   document.getElementById('profile-displayname').value = state.user.displayName || '';
   document.getElementById('profile-bio').value         = state.user.bio || '';
+  document.getElementById('profile-phone').value       = state.user.phone || '';
+  document.getElementById('profile-email').value       = state.user.email || '';
+  document.getElementById('profile-location').value    = state.user.location || '';
+  document.getElementById('profile-website').value     = state.user.website || '';
   document.getElementById('profile-avatar-preview').textContent = initials(state.user.displayName);
-  document.getElementById('modal-profile').classList.add('show');
+  document.getElementById('settings-my-name').textContent      = state.user.displayName || '';
+  document.getElementById('settings-my-username').textContent  = `@${state.user.username || ''}`;
+  document.getElementById('settings-my-uid').textContent       = state.user.id || '';
+  showView('settings');
+}
+
+function hideSettings() {
+  showView('main');
 }
 
 async function saveProfile() {
   const displayName = document.getElementById('profile-displayname').value.trim();
-  const bio = document.getElementById('profile-bio').value.trim();
-  if (!displayName) return;
+  const bio         = document.getElementById('profile-bio').value.trim();
+  const phone       = document.getElementById('profile-phone').value.trim();
+  const email       = document.getElementById('profile-email').value.trim();
+  const location    = document.getElementById('profile-location').value.trim();
+  const website     = document.getElementById('profile-website').value.trim();
+  if (!displayName) { toast('Display name is required', 'error'); return; }
+
+  const btn = document.getElementById('btn-save-profile');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   try {
     const res = await fetch(`${SERVER_URL}/api/profile`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${state.token}`
+        'x-user-id': state.user.id
       },
-      body: JSON.stringify({ displayName, bio })
+      body: JSON.stringify({ displayName, bio, phone, email, location, website, username: state.user.username })
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to update profile');
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `Server error ${res.status}`);
     }
 
     const { user } = await res.json();
 
-    // Update local state
-    state.user.displayName = user.displayName;
-    state.user.bio = user.bio;
+    // Update local state with all fields
+    Object.assign(state.user, { displayName, bio, phone, email, location, website });
     localStorage.setItem('he_user', JSON.stringify(state.user));
 
-    // Update UI
-    document.getElementById('my-displayname').textContent = state.user.displayName;
-    document.getElementById('my-avatar').textContent      = initials(state.user.displayName);
-    
-    closeModal('modal-profile');
-    toast('Profile updated!', 'success');
+    // Update sidebar avatar & name
+    document.getElementById('my-displayname').textContent = displayName;
+    document.getElementById('my-avatar').textContent      = initials(displayName);
+    document.getElementById('settings-my-name').textContent = displayName;
+
+    toast('Profile saved!', 'success');
   } catch (e) {
     toast(e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Settings'; }
   }
 }
 
