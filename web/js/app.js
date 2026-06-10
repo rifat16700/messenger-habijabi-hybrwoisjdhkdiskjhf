@@ -105,11 +105,21 @@ window.addEventListener('DOMContentLoaded', () => {
   const savedToken = localStorage.getItem('he_token');
   const savedUser  = localStorage.getItem('he_user');
   if (savedToken && savedUser) {
-    state.token = savedToken;
-    state.user  = JSON.parse(savedUser);
-    requestNotificationPermission();
-    showView('main');
-    initApp();
+    const parsedUser = JSON.parse(savedUser);
+    // Detect old Supabase UUID format (contains dashes) — force re-login
+    if (parsedUser.id && parsedUser.id.includes('-')) {
+      localStorage.removeItem('he_token');
+      localStorage.removeItem('he_user');
+      showView('auth');
+      // Show a friendly message after a short delay
+      setTimeout(() => toast('নতুন সিস্টেমে স্বাগতম! অনুগ্রহ করে আবার Sign In করুন অথবা নতুন Account তৈরি করুন।', 'info', 6000), 500);
+    } else {
+      state.token = savedToken;
+      state.user  = parsedUser;
+      requestNotificationPermission();
+      showView('main');
+      initApp();
+    }
   } else {
     showView('auth');
   }
@@ -1160,11 +1170,16 @@ async function saveProfile() {
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
   try {
+    const userId = state.user?.id;
+    const token  = state.token;
+    if (!userId) { throw new Error('Not logged in. Please sign out and sign in again.'); }
+
     const res = await fetch(`${SERVER_URL}/api/profile`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'x-user-id': state.user.id
+        'x-user-id': userId,
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ displayName, bio, phone, email, location, website, username: state.user.username })
     });

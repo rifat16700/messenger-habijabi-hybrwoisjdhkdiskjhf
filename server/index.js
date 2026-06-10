@@ -702,28 +702,42 @@ app.get('/api/users/:id', (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
-// Update profile (accepts x-user-id for client-side supabase auth)
+// Update profile — auth via x-user-id header OR Bearer token
 app.put('/api/profile', (req, res) => {
-  const userId = req.headers['x-user-id'];
-  if (!userId) return res.status(401).json({ error: 'Unauthorized: missing x-user-id' });
+  // Try x-user-id header first (direct)
+  let userId = req.headers['x-user-id'];
+
+  // Fallback: decode Bearer token
+  if (!userId) {
+    const bearerToken = req.headers.authorization?.split(' ')[1];
+    if (bearerToken) {
+      const decoded = verifyToken(bearerToken);
+      if (decoded) userId = decoded.userId;
+    }
+  }
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized: please sign out and sign in again' });
 
   const users = loadUsers();
   let idx = users.findIndex(u => u.id === userId);
-  
-  // If user registered via Supabase directly, they might not be in users.json yet
+
+  // User not in users.json yet (e.g. registered before this system) — auto-create
   if (idx === -1) {
     const newUser = {
       id: userId,
-      username: req.body.username || 'user',
+      username: req.body.username || userId,
       displayName: req.body.displayName || 'User',
+      passwordHash: '',
       role: 'user',
+      bio: '',
+      avatarColor: `hsl(${Math.floor(Math.random()*360)},60%,55%)`,
       createdAt: new Date().toISOString()
     };
     users.push(newUser);
     idx = users.length - 1;
   }
 
-  const allowedFields = ['displayName', 'bio', 'avatarUrl', 'avatarColor', 'coverUrl', 'status', 'location', 'website', 'email', 'phone'];
+  const allowedFields = ['displayName', 'bio', 'avatarUrl', 'avatarColor', 'coverUrl', 'status', 'location', 'website', 'email', 'phone', 'fcmToken'];
   allowedFields.forEach(field => {
     if (req.body[field] !== undefined) {
       if (typeof req.body[field] === 'string') {
@@ -733,7 +747,7 @@ app.put('/api/profile', (req, res) => {
   });
   saveUsers(users);
 
-  // Sync to GitHub profiles
+  // Sync to GitHub (public data only — no passwordHash)
   ghProfiles.saveProfile(users[idx].id, publicUser(users[idx])).catch(() => {});
 
   res.json({ user: publicUser(users[idx]) });

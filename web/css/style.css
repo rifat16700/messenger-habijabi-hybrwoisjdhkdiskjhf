@@ -696,12 +696,20 @@ a { text-decoration: none; color: inherit; }
 .no-chats .icon { display:flex; align-items:center; justify-content:center; margin-bottom: 12px; }
 .no-chats p { font-size: 13px; line-height: 1.6; }
 
-/* ── Settings / Profile Page ── */
+/* ── Settings / Profile Page — Full-screen overlay ── */
 #view-settings {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
   background: var(--bg);
   overflow-y: auto;
+  overflow-x: hidden;
+  display: none;        /* hidden by default — JS adds .active */
+  flex-direction: column;
+  align-items: center;
+}
+#view-settings.active {
   display: flex;
-  justify-content: center;
 }
 #view-settings h2 {
   color: var(--text);
