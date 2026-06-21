@@ -39,7 +39,7 @@ async function saveRegistry(users) {
   try {
     let sha = null;
     try { sha = (await ghGet(REGISTRY_PATH)).sha; } catch (e) { /* new file */ }
-    await ghPut(REGISTRY_PATH, users, `Registry sync — ${users.length} users`, sha);
+    await ghPut(REGISTRY_PATH, users, `Registry sync — ${users.length} users [skip ci]`, sha);
     console.log(`[GitHub] Registry synced (${users.length} users)`);
   } catch (err) {
     console.error('[GitHub] Registry sync failed:', err.message);
@@ -69,7 +69,7 @@ async function saveProfile(userId, profileData) {
   try {
     let sha = null;
     try { sha = (await ghGet(path)).sha; } catch (e) { /* new file */ }
-    await ghPut(path, profileData, `Update profile for ${userId}`, sha);
+    await ghPut(path, profileData, `Update profile for ${userId} [skip ci]`, sha);
     console.log(`[GitHub] Profile synced for ${userId}`);
   } catch (error) {
     console.error(`[GitHub] Profile sync failed for ${userId}:`, error.message);
@@ -85,7 +85,7 @@ async function deleteProfile(userId) {
       `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`,
       {
         headers: { Authorization: `token ${GITHUB_TOKEN}` },
-        data: { message: `Delete profile for ${userId}`, sha: data.sha, branch: BRANCH }
+        data: { message: `Delete profile for ${userId} [skip ci]`, sha: data.sha, branch: BRANCH }
       }
     );
     console.log(`[GitHub] Deleted profile ${userId}`);
@@ -135,7 +135,7 @@ async function executeBatchSync() {
   const path = `database/offline_batches/batch_${Date.now()}.json`;
 
   try {
-    await ghPut(path, batchToSync, `Batch sync of ${batchToSync.length} offline messages`);
+    await ghPut(path, batchToSync, `Batch sync of ${batchToSync.length} offline messages [skip ci]`);
     console.log(`[GitHub Batch] Synced to ${path}`);
   } catch (error) {
     console.error(`[GitHub Batch] Sync failed:`, error.message);

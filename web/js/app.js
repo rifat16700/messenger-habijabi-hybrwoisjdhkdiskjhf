@@ -8,8 +8,8 @@ const GITHUB_OWNER  = 'rifat16700';
 const GITHUB_REPO   = 'messenger-habijabi-hybrwoisjdhkdiskjhf';
 const GITHUB_BRANCH = 'main';
 function githubProfileUrl(userId) {
-  // Matches the server path: database/users/{uid}.json
-  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/database/users/${userId}.json`;
+  // Matches the server path: database/profiles/{uid}.json
+  return `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/database/profiles/${userId}.json`;
 }
 
 // ── 10-Digit UID Generator (no premium/rare patterns) ──

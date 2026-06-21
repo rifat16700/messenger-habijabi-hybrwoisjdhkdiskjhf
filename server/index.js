@@ -868,23 +868,22 @@ app.put('/admin/api/users/:id/role', (req, res) => {
   if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
   const { role } = req.body;
   if (!['user', 'moderator', 'admin'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  const users = loadUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  users[idx].role = role;
-  saveUsers(users);
+  const user = loadUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  user.role = role;
+  saveUserLocal(user);
   // Sync role change to GitHub
-  ghProfiles.saveProfile(users[idx].id, publicUser(users[idx])).catch(() => {});
+  ghProfiles.saveProfile(user.id, publicUser(user)).catch(() => {});
   // Notify the user live via socket if online
   const sockId = getSocketId(req.params.id);
   if (sockId) io.to(sockId).emit('role_updated', { role });
-  res.json({ user: publicUser(users[idx]) });
+  res.json({ user: publicUser(user) });
 });
 
 // Admin: server stats
 app.get('/admin/api/stats', (req, res) => {
   if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
-  const users = loadUsers();
+  const users = loadAllUsers();
   res.json({
     totalUsers: users.length,
     onlineNow: onlineUsers.size,
@@ -896,12 +895,15 @@ app.get('/admin/api/stats', (req, res) => {
 // Admin: delete user
 app.delete('/admin/api/users/:id', (req, res) => {
   if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
-  let users = loadUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  const userId = users[idx].id;
-  users.splice(idx, 1);
-  saveUsers(users);
+  const user = loadUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const userId = user.id;
+  
+  const file = path.join(PROFILES_DIR, `${userId}.json`);
+  if (fs.existsSync(file)) {
+    fs.unlinkSync(file);
+  }
+  
   // Remove from GitHub
   ghProfiles.deleteProfile(userId).catch(() => {});
   res.json({ success: true });
