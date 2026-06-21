@@ -39,20 +39,67 @@ function getFcmToken(userId) {
   return tokens[userId] || null;
 }
 
-// ── Simple in-memory user store (persisted to users.json) ──
+// ── File-based persistent user store (no RAM caching) ──
 // Format: { id, username, displayName, passwordHash, role, bio, avatarColor, createdAt }
-const USERS_FILE = path.join(__dirname, 'users.json');
-function loadUsers() {
+const PROFILES_DIR = path.join(__dirname, 'database', 'profiles');
+
+function ensureProfilesDir() {
+  if (!fs.existsSync(PROFILES_DIR)) {
+    fs.mkdirSync(PROFILES_DIR, { recursive: true });
+  }
+}
+
+function loadUserByUsername(username) {
+  if (!username) return null;
+  ensureProfilesDir();
+  const searchUsername = username.toLowerCase();
+  const files = fs.readdirSync(PROFILES_DIR);
+  for (const f of files) {
+    if (f.endsWith('.json')) {
+      try {
+        const u = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
+        if (u.username.toLowerCase() === searchUsername) return u;
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+function loadUserById(id) {
+  if (!id) return null;
+  ensureProfilesDir();
+  const file = path.join(PROFILES_DIR, `${id}.json`);
   try {
-    if (fs.existsSync(USERS_FILE)) return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-  } catch (e) { /* ignore */ }
-  return [];
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {}
+  return null;
 }
-function saveUsers(users) {
-  try { fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2)); } catch (e) { /* ignore */ }
-  // Async sync to GitHub registry (HF Space ephemeral — this is the backup)
-  ghProfiles.saveRegistry(users).catch(() => {});
+
+function loadAllUsers() {
+  ensureProfilesDir();
+  const users = [];
+  const files = fs.readdirSync(PROFILES_DIR);
+  for (const f of files) {
+    if (f.endsWith('.json')) {
+      try {
+        users.push(JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8')));
+      } catch (e) {}
+    }
+  }
+  return users;
 }
+
+function saveUserLocal(user) {
+  ensureProfilesDir();
+  const file = path.join(PROFILES_DIR, `${user.id}.json`);
+  fs.writeFileSync(file, JSON.stringify(user, null, 2));
+}
+
+function syncRegistryToGithub() {
+  const allUsers = loadAllUsers();
+  ghProfiles.saveRegistry(allUsers).catch(() => {});
+}
+
 function publicUser(u) {
   const { passwordHash, ...rest } = u;
   return {
@@ -114,24 +161,27 @@ const io = new Server(server, {
 // Initialize Firebase (gracefully skips if config not set)
 fcm.initFirebase();
 
-// ── On Startup: Restore users.json from GitHub if empty ──
+// ── On Startup: Restore from GitHub registry if local folder is empty ──
 // HuggingFace Space restarts wipe the filesystem — restore from GitHub backup.
 (async () => {
   try {
-    const local = loadUsers();
+    ensureProfilesDir();
+    const local = loadAllUsers();
     if (local.length === 0) {
-      console.log('[Startup] users.json is empty — restoring from GitHub registry...');
+      console.log('[Startup] Local profiles empty — restoring from GitHub registry...');
       const registry = await ghProfiles.loadRegistry();
       if (registry.length > 0) {
-        saveUsers(registry);
-        console.log(`[Startup] Restored ${registry.length} users from GitHub registry.`);
+        for (const u of registry) {
+          saveUserLocal(u);
+        }
+        console.log(`[Startup] Restored ${registry.length} users from GitHub registry into dedicated files.`);
       } else {
         console.log('[Startup] GitHub registry is also empty — fresh start.');
       }
     } else {
-      console.log(`[Startup] Loaded ${local.length} users from local users.json.`);
+      console.log(`[Startup] Loaded ${local.length} users from local database/profiles directory.`);
       // Sync to GitHub in background to keep registry fresh
-      ghProfiles.saveRegistry(local).catch(() => {});
+      syncRegistryToGithub();
     }
   } catch (err) {
     console.error('[Startup] Registry restore error:', err.message);
@@ -662,10 +712,12 @@ app.post('/api/register', (req, res) => {
   const { username, displayName, password } = req.body;
   if (!username || !displayName || !password) return res.status(400).json({ error: 'Missing fields' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
-  const users = loadUsers();
-  if (users.find(u => u.username === username.toLowerCase().trim())) {
+  
+  const existingUser = loadUserByUsername(username);
+  if (existingUser) {
     return res.status(409).json({ error: 'Username already taken' });
   }
+  
   const newUser = {
     id: uidGenerator.generateUID(),
     username: username.toLowerCase().trim(),
@@ -676,8 +728,10 @@ app.post('/api/register', (req, res) => {
     avatarColor: `hsl(${Math.floor(Math.random()*360)},60%,55%)`,
     createdAt: new Date().toISOString(),
   };
-  users.push(newUser);
-  saveUsers(users);
+  
+  saveUserLocal(newUser);
+  syncRegistryToGithub();
+  
   const token = generateToken(newUser.id);
 
   // Save public profile to GitHub (async, don't block response)
@@ -690,8 +744,8 @@ app.post('/api/register', (req, res) => {
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Missing fields' });
-  const users = loadUsers();
-  const user = users.find(u => u.username === username.toLowerCase().trim());
+  
+  const user = loadUserByUsername(username);
   if (!user || user.passwordHash !== hashPassword(password)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
@@ -702,7 +756,7 @@ app.post('/api/login', (req, res) => {
 // Get all users (public info + role/bio)
 app.get('/api/users', (req, res) => {
   const { q } = req.query;
-  const users = loadUsers();
+  const users = loadAllUsers();
   const filtered = users
     .filter(u => !q || u.username.includes(q.toLowerCase()) || u.displayName.toLowerCase().includes(q.toLowerCase()))
     .map(publicUser);
@@ -714,16 +768,21 @@ app.get('/api/users/me', (req, res) => {
   const auth = req.headers.authorization?.split(' ')[1];
   const decoded = verifyToken(auth || '');
   if (!decoded) return res.status(401).json({ error: 'Unauthorized' });
-  const users = loadUsers();
-  const user = users.find(u => u.id === decoded.userId);
+  
+  const user = loadUserById(decoded.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: publicUser(user) });
 });
 
 // Get any user's public profile
 app.get('/api/users/:id', (req, res) => {
-  const users = loadUsers();
-  const user = users.find(u => u.id === req.params.id);
+  const searchParam = req.params.id;
+  // Try finding by username first, fallback to UID
+  let user = loadUserByUsername(searchParam);
+  if (!user) {
+    user = loadUserById(searchParam);
+  }
+  
   if (!user) return res.status(404).json({ error: 'User not found' });
   res.json({ user: publicUser(user) });
 });
@@ -744,12 +803,11 @@ app.put('/api/profile', (req, res) => {
 
   if (!userId) return res.status(401).json({ error: 'Unauthorized: please sign out and sign in again' });
 
-  const users = loadUsers();
-  let idx = users.findIndex(u => u.id === userId);
+  let user = loadUserById(userId);
 
-  // User not in users.json yet (e.g. registered before this system) — auto-create
-  if (idx === -1) {
-    const newUser = {
+  // User not in local dir yet (e.g. registered before this system) — auto-create
+  if (!user) {
+    user = {
       id: userId,
       username: req.body.username || userId,
       displayName: req.body.displayName || 'User',
@@ -759,24 +817,24 @@ app.put('/api/profile', (req, res) => {
       avatarColor: `hsl(${Math.floor(Math.random()*360)},60%,55%)`,
       createdAt: new Date().toISOString()
     };
-    users.push(newUser);
-    idx = users.length - 1;
   }
 
   const allowedFields = ['displayName', 'bio', 'avatarUrl', 'avatarColor', 'coverUrl', 'status', 'location', 'website', 'email', 'phone', 'fcmToken'];
   allowedFields.forEach(field => {
     if (req.body[field] !== undefined) {
       if (typeof req.body[field] === 'string') {
-        users[idx][field] = req.body[field].trim();
+        user[field] = req.body[field].trim();
       }
     }
   });
-  saveUsers(users);
+  
+  saveUserLocal(user);
+  syncRegistryToGithub();
 
   // Sync to GitHub (public data only — no passwordHash)
-  ghProfiles.saveProfile(users[idx].id, publicUser(users[idx])).catch(() => {});
+  ghProfiles.saveProfile(user.id, publicUser(user)).catch(() => {});
 
-  res.json({ user: publicUser(users[idx]) });
+  res.json({ user: publicUser(user) });
 });
 
 // ──────────────────────────────────────────────
@@ -796,7 +854,7 @@ app.post('/admin/api/login', (req, res) => {
 // Admin: get all users
 app.get('/admin/api/users', (req, res) => {
   if (!verifyAdminToken(req)) return res.status(401).json({ error: 'Unauthorized' });
-  const users = loadUsers().map(u => ({
+  const users = loadAllUsers().map(u => ({
     ...publicUser(u),
     createdAt: u.createdAt,
     isOnline: onlineUsers.has(u.id),

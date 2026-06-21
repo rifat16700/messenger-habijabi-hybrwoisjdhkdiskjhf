@@ -62,10 +62,10 @@ async function loadRegistry() {
 }
 
 // ── Per-user Public Profile Sync ──
-// Path: database/users/{uid}.json (public — no passwordHash)
+// Path: database/profiles/{uid}.json (public — no passwordHash)
 async function saveProfile(userId, profileData) {
   if (!GITHUB_TOKEN) return;
-  const path = `database/users/${userId}.json`;
+  const path = `database/profiles/${userId}.json`;
   try {
     let sha = null;
     try { sha = (await ghGet(path)).sha; } catch (e) { /* new file */ }
@@ -78,7 +78,7 @@ async function saveProfile(userId, profileData) {
 
 async function deleteProfile(userId) {
   if (!GITHUB_TOKEN) return;
-  const path = `database/users/${userId}.json`;
+  const path = `database/profiles/${userId}.json`;
   try {
     const data = await ghGet(path);
     await axios.delete(
